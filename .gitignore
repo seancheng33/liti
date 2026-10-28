@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+out/
+
+# runtime data
+data/*.db
+data/*.db-*
+*.sqlite
+*.sqlite3
+*.db
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+logs/
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
