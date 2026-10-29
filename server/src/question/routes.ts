@@ -76,7 +76,8 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
   });
 
   app.get('/:id', async (request) => {
-    authenticate(request);
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     const q = await service.getQuestionDetail(db, Number(id));
     if (!q) throw new HttpError(404, '题目不存在');

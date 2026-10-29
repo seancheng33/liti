@@ -7,6 +7,8 @@ import { authRoutes } from './auth/routes.js';
 import { userRoutes } from './users/routes.js';
 import { categoryRoutes } from './category/routes.js';
 import { questionRoutes } from './question/routes.js';
+import { paperRoutes } from './paper/routes.js';
+import { attemptRoutes } from './attempt/routes.js';
 import { HttpError } from './http-error.js';
 import { SESSION_COOKIE_NAME, deleteExpiredSessions, getSessionByToken } from './auth/session.js';
 
@@ -69,6 +71,8 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(userRoutes, { db, prefix: '/api/users' });
   await app.register(categoryRoutes, { db, prefix: '/api/categories' });
   await app.register(questionRoutes, { db, prefix: '/api/questions' });
+  await app.register(paperRoutes, { db, prefix: '/api/papers' });
+  await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
 
   app.get('/health', async () => ({ ok: true, time: Date.now() }));
 

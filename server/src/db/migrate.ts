@@ -1,10 +1,12 @@
 import { Migrator, type Kysely, type Migration, type MigrationProvider } from 'kysely';
 import * as migration0001 from '../migrations/0001_init.js';
 import * as migration0002 from '../migrations/0002_question_bank.js';
+import * as migration0003 from '../migrations/0003_exam.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
   '0002_question_bank': migration0002,
+  '0003_exam': migration0003,
 };
 
 const provider: MigrationProvider = {
