@@ -1,5 +1,9 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
 import type { Config } from './config.js';
 import type { Db } from './db/index.js';
@@ -73,6 +77,18 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(questionRoutes, { db, prefix: '/api/questions' });
   await app.register(paperRoutes, { db, prefix: '/api/papers' });
   await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
+
+  // 生产模式托管前端静态资源（SPA 回退到 index.html）
+  const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist');
+  if (existsSync(webDist)) {
+    await app.register(fastifyStatic, { root: webDist, prefix: '/' });
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'Not Found' });
+      }
+      return reply.sendFile('index.html');
+    });
+  }
 
   app.get('/health', async () => ({ ok: true, time: Date.now() }));
 
