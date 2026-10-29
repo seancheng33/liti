@@ -1,0 +1,25 @@
+{
+  "name": "liti",
+  "version": "0.1.0",
+  "private": true,
+  "description": "砺题 Liti —— 面向局域网的学习刷题系统",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "pnpm --filter @liti/server dev",
+    "dev:web": "pnpm --filter @liti/web dev",
+    "build": "pnpm --filter @liti/web build",
+    "start": "pnpm --filter @liti/server start",
+    "migrate": "pnpm --filter @liti/server migrate",
+    "seed": "pnpm --filter @liti/server seed",
+    "test": "pnpm --filter @liti/server test",
+    "test:unit": "pnpm --filter @liti/server test:unit",
+    "test:integration": "pnpm --filter @liti/server test:integration"
+  }
+}
