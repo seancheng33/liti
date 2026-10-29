@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     pool: 'forks',
+    fileParallelism: false,
     include: ['test/**/*.test.ts'],
   },
 });

@@ -25,7 +25,55 @@ export interface SessionRow {
   created_at: number;
 }
 
+export interface CategoryRow {
+  id: Generated<number>;
+  name: string;
+  parent_id: number | null;
+  sort: number;
+  created_at: number;
+}
+
+export type QuestionType = 'single' | 'multiple';
+
+export interface QuestionRow {
+  id: Generated<number>;
+  type: QuestionType;
+  stem: string;
+  explanation: string | null;
+  category_id: number | null;
+  difficulty: number;
+  tags: string | null;
+  status: 'active' | 'archived';
+  content_hash: string;
+  created_by: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface QuestionOptionRow {
+  id: Generated<number>;
+  question_id: number;
+  content: string;
+  is_correct: number;
+  sort_order: number;
+}
+
+export interface ImportBatchRow {
+  id: Generated<number>;
+  filename: string;
+  total: number;
+  success: number;
+  failed: number;
+  errors: string | null;
+  created_by: number | null;
+  created_at: number;
+}
+
 export interface Database {
   user: UserRow;
   session: SessionRow;
+  category: CategoryRow;
+  question: QuestionRow;
+  question_option: QuestionOptionRow;
+  import_batch: ImportBatchRow;
 }

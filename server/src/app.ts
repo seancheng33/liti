@@ -5,6 +5,8 @@ import type { Config } from './config.js';
 import type { Db } from './db/index.js';
 import { authRoutes } from './auth/routes.js';
 import { userRoutes } from './users/routes.js';
+import { categoryRoutes } from './category/routes.js';
+import { questionRoutes } from './question/routes.js';
 import { HttpError } from './http-error.js';
 import { SESSION_COOKIE_NAME, deleteExpiredSessions, getSessionByToken } from './auth/session.js';
 
@@ -28,6 +30,13 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
     console.error('[unhandled-error]', error);
     return reply.code(500).send({ error: '服务器内部错误' });
   });
+
+  // xlsx 二进制体解析
+  app.addContentTypeParser(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    { parseAs: 'buffer' },
+    (_request, body, done) => done(null, body),
+  );
 
   await app.register(fastifyCookie);
   app.decorateRequest('authUser', null);
@@ -58,6 +67,8 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
 
   await app.register(authRoutes, { db, config, prefix: '/api/auth' });
   await app.register(userRoutes, { db, prefix: '/api/users' });
+  await app.register(categoryRoutes, { db, prefix: '/api/categories' });
+  await app.register(questionRoutes, { db, prefix: '/api/questions' });
 
   app.get('/health', async () => ({ ok: true, time: Date.now() }));
 
