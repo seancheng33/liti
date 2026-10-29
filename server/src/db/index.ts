@@ -1,9 +1,10 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { Kysely, MysqlDialect, SqliteDialect } from 'kysely';
 import { createPool } from 'mysql2';
 import type { Config } from '../config.js';
+import { workspaceRoot } from '../paths.js';
 import type { Database as DbSchema } from './types.js';
 
 export type Db = Kysely<DbSchema>;
@@ -17,7 +18,10 @@ export function createDb(config: Config): Db {
     return new Kysely<DbSchema>({ dialect: new MysqlDialect({ pool }) });
   }
 
-  const path = config.SQLITE_PATH;
+  let path = config.SQLITE_PATH;
+  if (path !== ':memory:' && !isAbsolute(path)) {
+    path = resolve(workspaceRoot, path);
+  }
   if (path !== ':memory:') {
     mkdirSync(dirname(path), { recursive: true });
   }
