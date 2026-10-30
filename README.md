@@ -78,11 +78,12 @@ pnpm dev:web
 ### 生产部署（局域网）
 
 ```bash
-pnpm build          # 构建前端并产出静态资源
+pnpm build          # 构建后端 + 前端
+pnpm seed           # 建库 + 初始账号
 pnpm start          # 单进程运行，托管 API + 静态资源
 ```
 
-浏览器访问 `http://<局域网IP>:8080`。
+浏览器访问 `http://<局域网IP>:8080`。完整部署步骤（防火墙、开机自启、MySQL、Electron 等）见 [docs/deployment.md](docs/deployment.md)。
 
 ---
 

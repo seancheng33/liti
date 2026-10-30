@@ -15,7 +15,7 @@
   "scripts": {
     "dev:server": "pnpm --filter @liti/server dev",
     "dev:web": "pnpm --filter @liti/web dev",
-    "build": "pnpm --filter @liti/web build",
+    "build": "pnpm --filter @liti/server build && pnpm --filter @liti/web build",
     "start": "pnpm --filter @liti/server start",
     "migrate": "pnpm --filter @liti/server migrate",
     "seed": "pnpm --filter @liti/server seed",
