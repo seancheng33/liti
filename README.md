@@ -47,6 +47,7 @@ liti/
 ├─ web/                      # 前端（React + Vite + Ant Design）
 │  └─ src/pages/             # 登录/题库/试卷/答题/解析/成绩
 ├─ e2e/                      # Playwright E2E 测试
+├─ electron/                 # 桌面壳（Electron，物理级防切屏）
 ├─ data/                     # SQLite 数据库文件（运行时生成，不入库）
 ├─ playwright.config.ts
 └─ README.md
@@ -108,6 +109,17 @@ DB_DRIVER=mysql MYSQL_URL="mysql://user:pass@127.0.0.1:3306/liti" pnpm start
 ### 接入 SSO（OIDC）
 
 配置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI`，并将 `AUTH_PROVIDERS` 设为 `local,oidc`（或 `oidc` 强制 SSO）。详见 [docs/architecture.md](docs/architecture.md)。
+
+### 桌面壳（Electron）
+
+```bash
+pnpm build                         # 构建前端
+pnpm --filter @liti/server build   # 构建后端 dist（Electron 依赖它）
+pnpm electron:build                # 编译 Electron 主进程 / 预加载脚本
+pnpm electron:start                # 启动桌面应用（需 node 在 PATH，或设置 LITI_NODE）
+```
+
+Electron 壳在考试期间启用**物理级防切屏**：全屏 + 置顶 + 失焦自动拉回；违规仍由服务端累计，满 3 次自动交卷。浏览器环境则退化为「遮罩 + 检测 + 惩罚」。
 
 ---
 

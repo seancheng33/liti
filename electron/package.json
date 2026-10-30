@@ -1,0 +1,16 @@
+{
+  "name": "@liti/electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "description": "砺题 Liti 桌面壳（Electron，物理级防切屏）",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^33.0.0",
+    "typescript": "^5.8.0"
+  }
+}

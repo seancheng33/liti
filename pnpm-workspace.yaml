@@ -1,8 +1,10 @@
-﻿packages:
+packages:
   - server
   - web
+  - electron
 
 allowBuilds:
   better-sqlite3: true
   argon2: true
   esbuild: true
+  electron: true

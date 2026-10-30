@@ -58,10 +58,12 @@ export default function ExamPage() {
     return () => clearInterval(t);
   }, [review, handleSubmit]);
 
-  // 防切屏
+  // 防切屏（Electron 主进程检测失焦并强制拉回；浏览器用 visibilitychange/blur 兜底）
   useEffect(() => {
-    async function onHidden() {
-      if (!review || review.status !== 'in_progress' || submittedRef.current) return;
+    if (!review || review.status !== 'in_progress' || submittedRef.current) return;
+
+    async function reportViolation() {
+      if (submittedRef.current) return;
       setPaused(true);
       try {
         const r = await api.post<{ count: number; autoSubmitted: boolean }>(`/api/attempts/${attemptId}/violations`, { type: 'switch' });
@@ -75,14 +77,24 @@ export default function ExamPage() {
         /* ignore */
       }
     }
+
+    const guard = window.liti?.examGuard;
+    if (guard) {
+      guard.start().catch(() => {});
+      guard.onViolation(reportViolation);
+      return () => {
+        guard.stop().catch(() => {});
+      };
+    }
+
     function onVisible() {
       if (document.visibilityState === 'visible') setPaused(false);
     }
     document.addEventListener('visibilitychange', onVisible);
-    document.addEventListener('blur', onHidden);
+    document.addEventListener('blur', reportViolation);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      document.removeEventListener('blur', onHidden);
+      document.removeEventListener('blur', reportViolation);
     };
   }, [review, attemptId, navigate]);
 

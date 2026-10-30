@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "server",
-    "web"
+    "web",
+    "electron"
   ],
   "scripts": {
     "dev:server": "pnpm --filter @liti/server dev",
@@ -21,7 +22,9 @@
     "test": "pnpm --filter @liti/server test",
     "test:unit": "pnpm --filter @liti/server test:unit",
     "test:integration": "pnpm --filter @liti/server test:integration",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "electron:build": "pnpm --filter @liti/electron build",
+    "electron:start": "pnpm --filter @liti/electron start"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1"
