@@ -7,8 +7,7 @@ build/
 out/
 
 # runtime data
-data/*.db
-data/*.db-*
+data/
 *.sqlite
 *.sqlite3
 *.db
@@ -25,6 +24,8 @@ logs/
 # test / coverage
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
 
 # OS / editor
 .DS_Store

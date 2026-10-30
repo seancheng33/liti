@@ -20,6 +20,10 @@
     "seed": "pnpm --filter @liti/server seed",
     "test": "pnpm --filter @liti/server test",
     "test:unit": "pnpm --filter @liti/server test:unit",
-    "test:integration": "pnpm --filter @liti/server test:integration"
+    "test:integration": "pnpm --filter @liti/server test:integration",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
   }
 }

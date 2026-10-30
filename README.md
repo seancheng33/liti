@@ -23,7 +23,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 前端 | React 18 + TypeScript + Vite + Ant Design 5 + TanStack Query |
+| 前端 | React 18 + TypeScript + Vite + Ant Design 5 + React Router |
 | 后端 | Node.js 22 + Fastify + Zod |
 | 数据访问 | Kysely（SQLite / MySQL 双方言） |
 | 存储 | SQLite（better-sqlite3，默认）/ MySQL（mysql2，可选） |
@@ -33,19 +33,22 @@
 
 ---
 
-## 📁 目录结构（规划）
+## 📁 目录结构
 
 ```
 liti/
 ├─ docs/
-│  └─ architecture.md        # 系统架构设计文档
+│  ├─ architecture.md        # 系统架构设计文档
+│  └─ acceptance.md          # 验收报告
 ├─ server/                   # 后端（Fastify + Kysely）
-│  ├─ src/
-│  ├─ migrations/            # SQLite / MySQL 迁移
+│  ├─ src/                   # 认证/题库/Excel/组卷/答题/判分
+│  ├─ test/                  # 单元 + 集成测试
 │  └─ .env.example
-├─ web/                      # 前端（React + Vite）
+├─ web/                      # 前端（React + Vite + Ant Design）
+│  └─ src/pages/             # 登录/题库/试卷/答题/解析/成绩
+├─ e2e/                      # Playwright E2E 测试
 ├─ data/                     # SQLite 数据库文件（运行时生成，不入库）
-├─ .gitignore
+├─ playwright.config.ts
 └─ README.md
 ```
 
@@ -111,23 +114,25 @@ DB_DRIVER=mysql MYSQL_URL="mysql://user:pass@127.0.0.1:3306/liti" pnpm start
 ## 🧪 测试
 
 ```bash
-pnpm test:unit        # 单元测试（判分/乱序/抽样/计时/Excel 校验/权限）
-pnpm test:integration # 集成测试（API 全链路，临时 SQLite）
-pnpm test:e2e         # E2E 测试（Playwright）
-pnpm test             # 全部
+pnpm test:unit        # 单元测试（34 个）
+pnpm test:integration # 集成测试（32 个）
+pnpm test             # 单元 + 集成（共 66 个）
+pnpm test:e2e         # E2E（需先 pnpm seed && pnpm start，并已安装 Playwright 浏览器）
 ```
 
-> 提交门槛：单元 + 集成 + E2E 全绿，且验收清单（`docs/architecture.md` 附录 A）100% 通过。
+> 提交门槛：单元 + 集成 + E2E 全绿。详见 [docs/acceptance.md](docs/acceptance.md) 验收报告。
+>
+> MySQL 实机冒烟需在具备 MySQL/Docker 的环境执行（本环境无 Docker，详见验收报告）。
 
 ---
 
 ## 🗺️ 路线图
 
 - [x] 方案设计与架构文档
-- [ ] M1 工程骨架、认证与角色、双数据库
-- [ ] M2 题库管理 + Excel 导入
-- [ ] M3 组卷、答题、计时、防切屏、判分与解析
-- [ ] M4 成绩记录、部署文档、验收
+- [x] M1 工程骨架、认证与角色、双数据库
+- [x] M2 题库管理 + Excel 导入
+- [x] M3 组卷、答题、计时、防切屏、判分与解析
+- [x] M4 前端、成绩记录、E2E、验收
 
 ---
 
