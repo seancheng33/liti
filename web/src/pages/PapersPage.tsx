@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Form, Input, InputNumber, Modal, Radio, Select, Space, Table, message } from 'antd';
-import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { PlusOutlined, ThunderboltOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -149,6 +149,11 @@ export default function PapersPage() {
             }}
           >
             新建试卷
+          </Button>
+        )}
+        {isManager && (
+          <Button icon={<DownloadOutlined />} href="/api/attempts/export">
+            导出成绩
           </Button>
         )}
       </Space>

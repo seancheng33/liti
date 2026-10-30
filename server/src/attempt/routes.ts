@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { authenticate } from '../plugins/auth.js';
+import { requireRole } from '../rbac.js';
+import { exportAttemptsXlsx } from '../excel/export.js';
 import * as service from './service.js';
 
 export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -23,6 +25,16 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     const body = z.object({ paperId: z.number().int() }).parse(request.body);
     const id = await service.startAttempt(db, body.paperId, user.userId);
     return { id };
+  });
+
+  // 成绩导出（管理员 / 教师）
+  app.get('/export', async (request, reply) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const buf = await exportAttemptsXlsx(db);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', 'attachment; filename="liti-scores.xlsx"');
+    return reply.send(buf);
   });
 
   app.post('/practice', async (request) => {
