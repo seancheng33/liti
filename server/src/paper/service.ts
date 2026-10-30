@@ -12,7 +12,7 @@ export interface SampleRule {
   count: number;
 }
 
-async function sampleQuestionIds(db: AnyDb, rules: SampleRule[]): Promise<number[]> {
+export async function sampleQuestionIds(db: AnyDb, rules: SampleRule[]): Promise<number[]> {
   const picked: number[] = [];
   const pickedSet = new Set<number>();
   for (const rule of rules) {
@@ -53,6 +53,7 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       shuffle_options: input.shuffleOptions === false ? 0 : 1,
       random_config: input.mode === 'random' ? JSON.stringify(input.randomRules ?? []) : null,
       status: 'draft',
+      practice: 0,
       created_by: userId,
       created_at: now,
       updated_at: now,
@@ -107,7 +108,7 @@ export async function getPaperDetail(db: Db, id: number) {
 export async function listPapers(db: Db, opts: { page?: number; pageSize?: number; status?: string }) {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(Math.max(1, opts.pageSize ?? 20), 100);
-  let base = db.selectFrom('paper');
+  let base = db.selectFrom('paper').where('practice', '=', 0);
   if (opts.status) base = base.where('status', '=', opts.status as 'draft' | 'published' | 'archived');
   const total = Number((await base.select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
   const items = await base.selectAll().orderBy('id', 'desc').limit(pageSize).offset((page - 1) * pageSize).execute();

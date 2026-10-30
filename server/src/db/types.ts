@@ -84,6 +84,7 @@ export interface PaperRow {
   shuffle_options: number;
   random_config: string | null;
   status: PaperStatus;
+  practice: number;
   created_by: number | null;
   created_at: number;
   updated_at: number;

@@ -25,6 +25,29 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     return { id };
   });
 
+  app.post('/practice', async (request) => {
+    const user = authenticate(request);
+    const body = z
+      .object({
+        rules: z.array(
+          z.object({
+            categoryId: z.number().int().nullable().optional(),
+            difficulty: z.number().int().min(1).max(3).nullable().optional(),
+            count: z.number().int().min(1),
+          }),
+        ),
+        durationSec: z.number().int().min(1).optional(),
+      })
+      .parse(request.body);
+    const rules = body.rules.map((r) => ({
+      categoryId: r.categoryId ?? undefined,
+      difficulty: r.difficulty ?? undefined,
+      count: r.count,
+    }));
+    const id = await service.startPractice(db, user.userId, rules, body.durationSec ?? 3600);
+    return { id };
+  });
+
   app.patch('/:id/answers', async (request) => {
     const user = authenticate(request);
     const { id } = request.params as { id: string };

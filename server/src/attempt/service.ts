@@ -2,7 +2,8 @@ import type { Kysely, Selectable, Transaction } from 'kysely';
 import type { Database, AttemptRow } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
-import { fisherYates } from '../paper/validate.js';
+import { sampleQuestionIds, type SampleRule } from '../paper/service.js';
+import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
@@ -15,7 +16,7 @@ function setsEqual(a: Set<number>, b: Set<number>): boolean {
 export async function startAttempt(db: Db, paperId: number, userId: number): Promise<number> {
   const paper = await db.selectFrom('paper').selectAll().where('id', '=', paperId).executeTakeFirst();
   if (!paper) throw new HttpError(404, '试卷不存在');
-  if (paper.status !== 'published') throw new HttpError(400, '试卷未发布，无法作答');
+  if (paper.status !== 'published' && paper.practice !== 1) throw new HttpError(400, '试卷未发布，无法作答');
 
   const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', paperId).orderBy('order_no', 'asc').execute();
   if (!items.length) throw new HttpError(400, '试卷没有题目');
@@ -57,6 +58,84 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
           attempt_id: attemptId,
           question_id: item.question_id,
           order_no: item.order_no,
+          option_order: JSON.stringify(ordered),
+          selected: null,
+          is_correct: null,
+          score: 0,
+          answered_at: null,
+        })
+        .execute();
+    }
+    return attemptId;
+  });
+}
+
+export async function startPractice(db: Db, userId: number, rules: SampleRule[], durationSec: number): Promise<number> {
+  const total = rules.reduce((s, r) => s + r.count, 0);
+  if (total < 1 || total > MAX_PAPER_QUESTIONS) {
+    throw new HttpError(400, `题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
+  }
+  const questionIds = await sampleQuestionIds(db, rules);
+  const now = Date.now();
+  const deadlineAt = now + durationSec * 1000;
+
+  return db.transaction().execute(async (trx) => {
+    const paperRes = await trx
+      .insertInto('paper')
+      .values({
+        title: `练习卷（随机 ${questionIds.length} 题）`,
+        mode: 'random',
+        question_count: questionIds.length,
+        duration_sec: durationSec,
+        pass_score: 60,
+        review_mode: 'immediate',
+        shuffle_options: 1,
+        random_config: JSON.stringify(rules),
+        status: 'draft',
+        practice: 1,
+        created_by: userId,
+        created_at: now,
+        updated_at: now,
+      })
+      .executeTakeFirstOrThrow();
+    const paperId = Number(paperRes.insertId);
+
+    await trx
+      .insertInto('paper_item')
+      .values(questionIds.map((qid, i) => ({ paper_id: paperId, question_id: qid, order_no: i + 1, score: 1 })))
+      .execute();
+
+    const attemptRes = await trx
+      .insertInto('attempt')
+      .values({
+        paper_id: paperId,
+        user_id: userId,
+        started_at: now,
+        deadline_at: deadlineAt,
+        status: 'in_progress',
+        score: 0,
+        total_score: questionIds.length,
+        correct_count: 0,
+        created_at: now,
+      })
+      .executeTakeFirstOrThrow();
+    const attemptId = Number(attemptRes.insertId);
+
+    for (let i = 0; i < questionIds.length; i++) {
+      const qid = questionIds[i];
+      const options = await trx
+        .selectFrom('question_option')
+        .selectAll()
+        .where('question_id', '=', qid)
+        .orderBy('sort_order', 'asc')
+        .execute();
+      const ordered = fisherYates(options.map((o) => o.id));
+      await trx
+        .insertInto('attempt_item')
+        .values({
+          attempt_id: attemptId,
+          question_id: qid,
+          order_no: i + 1,
           option_order: JSON.stringify(ordered),
           selected: null,
           is_correct: null,
