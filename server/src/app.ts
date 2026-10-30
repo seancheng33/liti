@@ -11,6 +11,7 @@ import { categoryRoutes } from './category/routes.js';
 import { questionRoutes } from './question/routes.js';
 import { paperRoutes } from './paper/routes.js';
 import { attemptRoutes } from './attempt/routes.js';
+import { statsRoutes } from './stats/routes.js';
 import { HttpError } from './http-error.js';
 import { webDistPath } from './paths.js';
 import { SESSION_COOKIE_NAME, deleteExpiredSessions, getSessionByToken } from './auth/session.js';
@@ -76,6 +77,7 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(questionRoutes, { db, prefix: '/api/questions' });
   await app.register(paperRoutes, { db, prefix: '/api/papers' });
   await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
+  await app.register(statsRoutes, { db, prefix: '/api/stats' });
 
   // 生产模式托管前端静态资源（SPA 回退到 index.html）
   if (existsSync(webDistPath)) {

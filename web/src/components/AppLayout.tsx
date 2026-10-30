@@ -12,7 +12,12 @@ export default function AppLayout() {
   const items = [
     { key: '/papers', label: '试卷' },
     { key: '/attempts', label: '我的答卷' },
-    ...(user && user.role !== 'student' ? [{ key: '/questions', label: '题库' }] : []),
+    ...(user && user.role !== 'student'
+      ? [
+          { key: '/questions', label: '题库' },
+          { key: '/stats', label: '统计' },
+        ]
+      : []),
   ];
 
   return (

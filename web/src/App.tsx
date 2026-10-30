@@ -7,6 +7,7 @@ import PapersPage from './pages/PapersPage';
 import ExamPage from './pages/ExamPage';
 import ReviewPage from './pages/ReviewPage';
 import MyAttemptsPage from './pages/MyAttemptsPage';
+import StatsPage from './pages/StatsPage';
 import AppLayout from './components/AppLayout';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="papers" element={<PapersPage />} />
             <Route path="questions" element={<QuestionsPage />} />
             <Route path="attempts" element={<MyAttemptsPage />} />
+            <Route path="stats" element={<StatsPage />} />
             <Route path="exam/:attemptId" element={<ExamPage />} />
             <Route path="review/:attemptId" element={<ReviewPage />} />
           </Route>
