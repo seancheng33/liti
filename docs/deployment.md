@@ -225,6 +225,9 @@ docker run -d --name liti --network liti-net -p 8080:8080 \
 > **MySQL 模式下也要挂 `/app/data`**：数据库在 MySQL 里，但题目配图仍然落在容器的
 > `/app/data/uploads`，不挂卷重建容器就全丢。
 >
+> **密码含 `#` `@` `/` `:` 时必须 URL 编码**：`#` 是 URL 的 fragment 分隔符，`mysql://root:St#123@host/db`
+> 会被截成 `mysql://root:St`，启动直接抛 `TypeError: Invalid URL`。写成 `St%23123` 即可。
+>
 > 已验证：迁移 + CRUD + 组卷/答题/判分 + Excel 导出 + 统计在真实 MySQL 8 上全量通过（utf8mb4 中文存储正常）。
 
 ### 11.4 常用命令

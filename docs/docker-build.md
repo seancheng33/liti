@@ -390,6 +390,7 @@ docker exec -i liti-mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" liti
 | 页面 502 / 打不开 | `docker ps` 看容器是否 Up；`curl 127.0.0.1:8080/api/health` 从宿主机测 |
 | 登录后立刻掉线 | 多个实例用了不同 `SESSION_SECRET`，或没挂卷导致重启后会话表丢失 |
 | MySQL 报 `ECONNREFUSED` | 用了 `127.0.0.1` 而不是容器名；或 MySQL 还没初始化完就起应用 |
+| 启动即退，日志 `TypeError: Invalid URL` | `MYSQL_URL` 里密码含 `#` `@` `/` `:` 等保留字符没编码。`#` 是 fragment 分隔符，会把后面全部截掉 → 密码 `St#123` 要写成 `St%23123`（`@`→`%40`、`/`→`%2F`、`:`→`%3A`、`?`→`%3F`） |
 | 图片全部裂开 | `/app/data` 没挂卷，重建容器后 uploads 丢了；或从别的机器恢复时只导了库没导 uploads |
 | 中文变成问号 | MySQL 库不是 `utf8mb4`（见 4.1） |
 | 构建卡在 `pnpm install` | 网络问题；Dockerfile 已配 npmmirror，需要能通 `registry.npmmirror.com` |
