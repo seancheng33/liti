@@ -147,7 +147,62 @@ pnpm test:e2e      # E2E（需先启动服务）
 
 详见 [acceptance.md](./acceptance.md)。
 
-## 11. 常见问题
+## 11. Docker 部署（推荐）
+
+项目提供多阶段构建的 `Dockerfile`，构建产物内含后端 + 前端静态资源，单容器即可运行。
+
+### 11.1 构建镜像
+
+```bash
+docker build -t liti:latest .
+```
+
+> 构建走国内镜像加速（npm 依赖用 npmmirror，node-gyp 的 headers 用 npmmirror 的 node 镜像）。
+> 已跳过 electron 二进制下载（桌面壳只跑在本地，不进镜像）。
+
+### 11.2 运行（SQLite 模式）
+
+```bash
+docker run -d --name liti -p 8080:8080 \
+  -e SESSION_SECRET=请改成强随机串 \
+  -v liti-data:/app/data \
+  liti:latest
+```
+
+首次运行需初始化账号（容器内执行 seed）：
+
+```bash
+docker exec liti node server/dist/seed.js
+```
+
+### 11.3 运行（MySQL 模式）
+
+```bash
+# 1. 起 MySQL
+docker run -d --name liti-mysql -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=liti \
+  mysql:8
+
+# 2. 起应用（MYSQL_URL 指向 MySQL 容器 IP，或用 docker network）
+docker run -d --name liti -p 8080:8080 \
+  -e DB_DRIVER=mysql \
+  -e MYSQL_URL="mysql://root:root123@<mysql容器IP>:3306/liti" \
+  -e SESSION_SECRET=请改成强随机串 \
+  liti:latest
+```
+
+> 已验证：迁移 + CRUD + 组卷/答题/判分 + Excel 导出 + 统计在真实 MySQL 8 上全量通过（utf8mb4 中文存储正常）。
+
+### 11.4 常用命令
+
+```bash
+docker logs -f liti        # 查看日志
+docker exec liti node server/dist/seed.js   # 建初始账号
+```
+
+---
+
+## 12. 常见问题
 
 - **其它设备访问不了**：检查防火墙放行 8080；确认 `HOST=0.0.0.0`。
 - **改了代码不生效**：重新执行 `pnpm build` 并重启 `pnpm start`。
