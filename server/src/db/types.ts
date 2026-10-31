@@ -11,6 +11,7 @@ export interface UserRow {
   provider: 'local' | 'oidc';
   external_id: string | null;
   status: 'active' | 'disabled';
+  prefs: string | null;
   created_at: number;
   updated_at: number;
 }

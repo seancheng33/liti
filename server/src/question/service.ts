@@ -2,9 +2,48 @@ import type { Kysely, Transaction } from 'kysely';
 import type { Database } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
-import { contentHash, validateQuestionDraft, type QuestionDraft } from './validate.js';
+import { contentHash, normalizeLoose, validateQuestionDraft, type QuestionDraft } from './validate.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
+
+export interface DuplicateHit {
+  id: number;
+  stem: string;
+  type: string;
+  /** exact = 题干完全一致；similar = 忽略空格标点后一致 */
+  match: 'exact' | 'similar';
+}
+
+/**
+ * 查重：先按 content_hash 精确命中；未命中再用宽松归一化比对一次，
+ * 把「同一题换了标点/空格」也算重复。
+ * 说明：宽松比对会拉一次 id/stem/type（题库规模在万级以内，可接受；仅在新增/编辑/导入时触发）。
+ */
+export async function findDuplicate(db: Db, stem: string, excludeId?: number): Promise<DuplicateHit | null> {
+  const hash = contentHash(stem);
+  let exactQuery = db
+    .selectFrom('question')
+    .select(['id', 'stem', 'type'])
+    .where('content_hash', '=', hash);
+  if (excludeId != null) exactQuery = exactQuery.where('id', '!=', excludeId);
+  const exact = await exactQuery.executeTakeFirst();
+  if (exact) return { ...exact, match: 'exact' };
+
+  const key = normalizeLoose(stem);
+  if (!key) return null;
+
+  let allQuery = db.selectFrom('question').select(['id', 'stem', 'type']);
+  if (excludeId != null) allQuery = allQuery.where('id', '!=', excludeId);
+  const rows = await allQuery.execute();
+  const hit = rows.find((r) => normalizeLoose(r.stem) === key);
+  return hit ? { ...hit, match: 'similar' } : null;
+}
+
+/** 命中重复时统一抛 409，details 带上已有题目，方便前端展示/跳转 */
+export function duplicateError(dup: DuplicateHit): HttpError {
+  const brief = dup.stem.length > 40 ? `${dup.stem.slice(0, 40)}…` : dup.stem;
+  return new HttpError(409, `题库中已存在相同题目（ID ${dup.id}）：${brief}`, { duplicate: dup });
+}
 
 async function insertQuestion(db: AnyDb, draft: QuestionDraft, userId: number | null): Promise<number> {
   const now = Date.now();
@@ -38,15 +77,36 @@ async function insertQuestion(db: AnyDb, draft: QuestionDraft, userId: number | 
   return questionId;
 }
 
-export async function createQuestion(db: Db, draft: QuestionDraft, userId: number | null): Promise<number> {
+export async function createQuestion(
+  db: Db,
+  draft: QuestionDraft,
+  userId: number | null,
+  opts: { allowDuplicate?: boolean } = {},
+): Promise<number> {
   const errors = validateQuestionDraft(draft);
   if (errors.length) throw new HttpError(400, errors.join('；'));
+
+  if (!opts.allowDuplicate) {
+    const dup = await findDuplicate(db, draft.stem);
+    if (dup) throw duplicateError(dup);
+  }
+
   return db.transaction().execute((trx) => insertQuestion(trx, draft, userId));
 }
 
-export async function updateQuestion(db: Db, id: number, draft: QuestionDraft): Promise<void> {
+export async function updateQuestion(
+  db: Db,
+  id: number,
+  draft: QuestionDraft,
+  opts: { allowDuplicate?: boolean } = {},
+): Promise<void> {
   const errors = validateQuestionDraft(draft);
   if (errors.length) throw new HttpError(400, errors.join('；'));
+
+  if (!opts.allowDuplicate) {
+    const dup = await findDuplicate(db, draft.stem, id);
+    if (dup) throw duplicateError(dup);
+  }
 
   await db.transaction().execute(async (trx) => {
     const existing = await trx.selectFrom('question').select('id').where('id', '=', id).executeTakeFirst();

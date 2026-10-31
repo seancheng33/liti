@@ -23,6 +23,17 @@ export function normalizeStem(stem: string): string {
   return stem.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/**
+ * 宽松归一化：去掉所有空白与标点/符号，只保留文字、数字、汉字。
+ * 用于「近似查重」——同一道题换个标点、多个空格都能认出来。
+ */
+export function normalizeLoose(stem: string): string {
+  return stem
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[\p{P}\p{S}]/gu, '');
+}
+
 export function contentHash(stem: string): string {
   return createHash('sha256').update(normalizeStem(stem)).digest('hex');
 }

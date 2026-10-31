@@ -39,8 +39,9 @@ COPY tsconfig.base.json ./
 COPY server/ server/
 COPY web/ web/
 
-# 编译后端 + 构建前端
+# 编译后端 + 构建前端（前端先跑一遍 tsc 类型检查，vite 本身不校验类型）
 RUN pnpm --filter @liti/server build \
+    && pnpm --filter @liti/web typecheck \
     && pnpm --filter @liti/web build
 
 # ---------- 阶段 2：运行时 ----------

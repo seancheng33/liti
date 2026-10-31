@@ -11,6 +11,7 @@ export interface SessionUser {
   displayName: string;
   role: Role;
   status: string;
+  prefs: string | null;
   expiresAt: number;
 }
 
@@ -70,6 +71,7 @@ export async function getSessionByToken(db: Db, token: string): Promise<SessionU
       'user.display_name as displayName',
       'user.role as role',
       'user.status as status',
+      'user.prefs as prefs',
       'session.expires_at as expiresAt',
     ])
     .where('session.token_hash', '=', sha256(token))

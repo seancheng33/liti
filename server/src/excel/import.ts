@@ -3,6 +3,7 @@ import type { Db } from '../db/index.js';
 import { createQuestion } from '../question/service.js';
 import {
   contentHash,
+  normalizeLoose,
   validateQuestionDraft,
   type QuestionDraft,
   type QuestionOptionInput,
@@ -99,7 +100,8 @@ export async function parseQuestionRows(buffer: Buffer): Promise<ParsedRow[]> {
 
 export interface ImportOptions {
   dryRun: boolean;
-  mode: 'skip' | 'strict';
+  /** skip=跳过重复继续导入；strict=有任何问题整批不导入；allow=重复也照常导入 */
+  mode: 'skip' | 'strict' | 'allow';
   filename: string;
   userId: number | null;
 }
@@ -108,6 +110,8 @@ export interface ImportRowResult {
   row: number;
   ok: boolean;
   errors: string[];
+  /** 判定为重复时，题库里已有题目的 ID */
+  duplicateOf?: number;
 }
 
 export interface ImportSummary {
@@ -125,9 +129,16 @@ export async function importQuestions(
 ): Promise<ImportSummary> {
   const categories = await db.selectFrom('category').selectAll().execute();
   const categoryMap = new Map(categories.map((c) => [c.name, c.id]));
-  const existingHashes = new Set(
-    (await db.selectFrom('question').select('content_hash').execute()).map((r) => r.content_hash),
-  );
+
+  // 一次性把题库里的题干读出来，建立「精确哈希 → id」「宽松键 → id」两张表
+  const existingRows = await db.selectFrom('question').select(['id', 'stem']).execute();
+  const byHash = new Map<string, number>();
+  const byLoose = new Map<string, number>();
+  for (const r of existingRows) {
+    byHash.set(contentHash(r.stem), r.id);
+    const k = normalizeLoose(r.stem);
+    if (k) byLoose.set(k, r.id);
+  }
 
   const rows: ImportRowResult[] = [];
   const toImport: { draft: QuestionDraft }[] = [];
@@ -155,12 +166,18 @@ export async function importQuestions(
     }
 
     const hash = contentHash(draft.stem);
-    if (existingHashes.has(hash)) {
+    const loose = normalizeLoose(draft.stem);
+    const dupId = byHash.get(hash) ?? (loose ? byLoose.get(loose) : undefined);
+
+    if (dupId != null && opts.mode !== 'allow') {
       skipped++;
-      rows.push({ row: p.row, ok: false, errors: ['题库中已存在相同题干'] });
+      rows.push({ row: p.row, ok: false, duplicateOf: dupId, errors: [`与题库已有题目重复（ID ${dupId}）`] });
       continue;
     }
-    existingHashes.add(hash);
+
+    // 同一批内部的重复也记下来，避免同表重复导入
+    byHash.set(hash, dupId ?? -1);
+    if (loose) byLoose.set(loose, dupId ?? -1);
 
     toImport.push({ draft: { ...draft, categoryId } });
     rows.push({ row: p.row, ok: true, errors: [] });
@@ -173,7 +190,8 @@ export async function importQuestions(
 
   if (!opts.dryRun) {
     for (const item of toImport) {
-      await createQuestion(db, item.draft, opts.userId);
+      // 查重已经在本函数内统一处理过（含 allow 模式），这里不再逐条重查
+      await createQuestion(db, item.draft, opts.userId, { allowDuplicate: true });
     }
     const now = Date.now();
     await db

@@ -10,6 +10,7 @@ import MyAttemptsPage from './pages/MyAttemptsPage';
 import StatsPage from './pages/StatsPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
+import ProfilePage from './pages/ProfilePage';
 import AppLayout from './components/AppLayout';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="stats" element={<StatsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="profile" element={<ProfilePage />} />
             <Route path="exam/:attemptId" element={<ExamPage />} />
             <Route path="review/:attemptId" element={<ReviewPage />} />
           </Route>

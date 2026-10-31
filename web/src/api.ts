@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** 后端返回的结构化附加信息（如查重命中的题目） */
+    public details?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -18,13 +20,15 @@ async function request<T>(path: string, opts: { method?: string; body?: unknown 
 
   if (!res.ok) {
     let msg = `请求失败(${res.status})`;
+    let details: unknown;
     try {
       const data = await res.json();
       if (data?.error) msg = data.error;
+      details = data?.details;
     } catch {
       /* ignore */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, details);
   }
   return res.json() as Promise<T>;
 }
@@ -46,13 +50,15 @@ export async function uploadXlsx(path: string, buffer: ArrayBuffer): Promise<unk
   });
   if (!res.ok) {
     let msg = `请求失败(${res.status})`;
+    let details: unknown;
     try {
       const data = await res.json();
       if (data?.error) msg = data.error;
+      details = data?.details;
     } catch {
       /* ignore */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, details);
   }
   return res.json();
 }

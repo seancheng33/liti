@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Modal, Radio, Result, Space, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Modal, Radio, Result, Space, Typography, message, theme as antdTheme } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import type { AttemptReview } from '../types';
@@ -7,6 +7,7 @@ import type { AttemptReview } from '../types';
 export default function ExamPage() {
   const { attemptId } = useParams();
   const navigate = useNavigate();
+  const { token } = antdTheme.useToken();
   const [review, setReview] = useState<AttemptReview | null>(null);
   const [answers, setAnswers] = useState<Record<number, number[]>>({});
   const [current, setCurrent] = useState(0); // 当前题索引（0-based）
@@ -210,9 +211,13 @@ export default function ExamPage() {
                     size="small"
                     onClick={() => setCurrent(idx)}
                     style={{
-                      background: answered ? '#52c41a' : '#f0f0f0',
-                      color: answered ? '#fff' : '#666',
-                      borderColor: isCurrent ? '#1677ff' : answered ? '#52c41a' : '#d9d9d9',
+                      background: answered ? token.colorSuccess : token.colorFillSecondary,
+                      color: answered ? '#fff' : token.colorText,
+                      borderColor: isCurrent
+                        ? token.colorPrimary
+                        : answered
+                          ? token.colorSuccess
+                          : token.colorBorder,
                       borderWidth: isCurrent ? 2 : 1,
                       fontWeight: isCurrent ? 700 : 400,
                     }}
@@ -224,8 +229,8 @@ export default function ExamPage() {
             </Space>
             <div style={{ marginTop: 8 }}>
               <Space size="large">
-                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#52c41a', borderRadius: '50%', marginRight: 4 }} />已答</span>
-                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#f0f0f0', border: '1px solid #d9d9d9', borderRadius: '50%', marginRight: 4 }} />未答</span>
+                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: token.colorSuccess, borderRadius: '50%', marginRight: 4 }} />已答</span>
+                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: token.colorFillSecondary, border: `1px solid ${token.colorBorder}`, borderRadius: '50%', marginRight: 4 }} />未答</span>
               </Space>
             </div>
           </div>

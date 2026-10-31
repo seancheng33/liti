@@ -17,6 +17,13 @@ const questionSchema = z.object({
   difficulty: z.number().int().min(1).max(3).nullable().optional(),
   tags: z.array(z.string()).optional(),
   options: z.array(optionSchema).min(2).max(6),
+  /** 明确知道重复仍要新增/覆盖时传 true */
+  allowDuplicate: z.boolean().optional(),
+});
+
+const duplicateCheckSchema = z.object({
+  stem: z.string().min(1),
+  excludeId: z.number().int().optional(),
 });
 
 export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -37,7 +44,7 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
 
     const q = request.query as { dryRun?: string; mode?: string; filename?: string };
     const dryRun = q.dryRun === 'true' || q.dryRun === '1';
-    const mode = q.mode === 'strict' ? 'strict' : 'skip';
+    const mode = q.mode === 'strict' ? 'strict' : q.mode === 'allow' ? 'allow' : 'skip';
 
     const body = request.body;
     if (!Buffer.isBuffer(body)) {
@@ -70,9 +77,18 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
   app.post('/', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
-    const body = questionSchema.parse(request.body);
-    const id = await service.createQuestion(db, body, user.userId);
+    const { allowDuplicate, ...body } = questionSchema.parse(request.body);
+    const id = await service.createQuestion(db, body, user.userId, { allowDuplicate });
     return { id };
+  });
+
+  // 查重预检（新增/编辑题目时前端实时提示）
+  app.post('/check-duplicate', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const body = duplicateCheckSchema.parse(request.body);
+    const duplicate = await service.findDuplicate(db, body.stem, body.excludeId);
+    return { duplicate };
   });
 
   app.get('/:id', async (request) => {
@@ -88,8 +104,8 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
-    const body = questionSchema.parse(request.body);
-    await service.updateQuestion(db, Number(id), body);
+    const { allowDuplicate, ...body } = questionSchema.parse(request.body);
+    await service.updateQuestion(db, Number(id), body, { allowDuplicate });
     return { ok: true };
   });
 

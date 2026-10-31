@@ -7,6 +7,7 @@ export interface AuthUser {
   displayName: string;
   role: Role;
   status: string;
+  theme?: string;
 }
 
 export function requireRole(user: AuthUser, ...roles: Role[]): AuthUser {

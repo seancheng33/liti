@@ -16,6 +16,7 @@ import { settingRoutes } from './settings/routes.js';
 import { HttpError } from './http-error.js';
 import { webDistPath } from './paths.js';
 import { SESSION_COOKIE_NAME, deleteExpiredSessions, getSessionByToken } from './auth/session.js';
+import { parsePrefs } from './user-prefs.js';
 
 export interface AppContext {
   app: FastifyInstance;
@@ -31,7 +32,9 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
       return reply.code(400).send({ error: '请求参数错误', details: error.issues });
     }
     if (error instanceof HttpError) {
-      return reply.code(error.statusCode).send({ error: error.message });
+      return reply
+        .code(error.statusCode)
+        .send({ error: error.message, ...(error.details !== undefined ? { details: error.details } : {}) });
     }
     request.log.error(error);
     console.error('[unhandled-error]', error);
@@ -62,6 +65,7 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
       displayName: row.displayName,
       role: row.role,
       status: row.status,
+      theme: parsePrefs(row.prefs).theme,
     };
   });
 
