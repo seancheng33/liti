@@ -68,6 +68,11 @@ export default function QuestionsPage() {
   const [filterCategory, setFilterCategory] = useState<number | undefined>();
   const [filterType, setFilterType] = useState<string | undefined>();
 
+  // 批量操作（batchCategory 用 0 代表「未分类」，undefined 代表还没选）
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [batchCategory, setBatchCategory] = useState<number | undefined>(undefined);
+  const [batchLoading, setBatchLoading] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -225,12 +230,68 @@ export default function QuestionsPage() {
 
   async function onDelete(id: number) {
     try {
-      await api.del(`/api/questions/${id}`);
-      message.success('已删除');
+      const r = await api.del<{ archived: number; usedInPapers: number }>(`/api/questions/${id}`);
+      message.success(
+        r.usedInPapers > 0
+          ? `已从题库删除；这题还在 ${r.usedInPapers} 份试卷里，那些试卷照常能看能考`
+          : '已从题库删除',
+      );
+      setSelectedIds((ids) => ids.filter((x) => x !== id));
       load();
     } catch (e) {
       message.error((e as Error).message);
     }
+  }
+
+  /** 批量改分类 / 批量删除 */
+  async function runBatch(action: 'delete' | 'category', categoryId?: number | null) {
+    if (!selectedIds.length) return;
+    setBatchLoading(true);
+    try {
+      const res = await api.post<{ archived?: number; updated?: number; usedInPapers?: number }>('/api/questions/batch', {
+        ids: selectedIds,
+        action,
+        ...(action === 'category' ? { categoryId: categoryId ?? null } : {}),
+      });
+      if (action === 'delete') {
+        message.success(
+          res.usedInPapers
+            ? `已删除 ${res.archived} 题；其中被 ${res.usedInPapers} 份试卷引用的题目仍会正常显示在那些试卷里`
+            : `已删除 ${res.archived} 题`,
+        );
+        setSelectedIds([]);
+      } else {
+        message.success(`已把 ${res.updated} 题改为「${categoryId == null ? '未分类' : categoryName(categoryId)}」`);
+        setBatchCategory(undefined);
+        setSelectedIds([]);
+      }
+      load();
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  function confirmBatchDelete() {
+    Modal.confirm({
+      title: `确认删除选中的 ${selectedIds.length} 道题？`,
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>题目会从题库列表里消失。</p>
+          <Alert
+            type="info"
+            showIcon
+            message="已经组进试卷的题目，在那些试卷里照常显示"
+            description="删除只是把题目从题库隐藏，历史试卷、已发布试卷和已经交过的答卷都还能正常看到题面和解析。"
+          />
+        </div>
+      ),
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => runBatch('delete'),
+    });
   }
 
   const columns = [
@@ -266,9 +327,11 @@ export default function QuestionsPage() {
         isManager ? (
           <Space size={12}>
             <a onClick={() => openEdit(r)}>编辑</a>
-            <a style={{ color: '#e5484d' }} onClick={() => onDelete(r.id)}>
-              删除
-            </a>
+            <Tooltip title="从题库删除；已组进试卷的仍会在那些试卷里正常显示">
+              <a style={{ color: '#e5484d' }} onClick={() => onDelete(r.id)}>
+                删除
+              </a>
+            </Tooltip>
           </Space>
         ) : (
           '-'
@@ -280,7 +343,7 @@ export default function QuestionsPage() {
     <div className="liti-page">
       <PageHeader
         title="题库"
-        description="支持单选题与多选题，题干和选项都可以配图。新增或导入时会自动和已有题目查重。"
+        description="支持单选题与多选题，题干和选项都可以配图。勾选左侧方框可以批量改分类或批量删除；删除的题目只是离开题库，已组进试卷的仍会正常显示。"
         extra={
           isManager ? (
             <>
@@ -355,11 +418,54 @@ export default function QuestionsPage() {
             />
           </Space>
         </div>
+
+        {/* 勾选后浮出的批量工具条 */}
+        {isManager && selectedIds.length > 0 && (
+          <div className="liti-batch-bar">
+            <Space wrap size={12}>
+              <span>
+                已选 <strong>{selectedIds.length}</strong> 题
+              </span>
+              <Space.Compact>
+                <Select
+                  placeholder="改到哪个分类"
+                  style={{ width: 190 }}
+                  value={batchCategory}
+                  onChange={(v) => setBatchCategory(v)}
+                  options={[{ value: 0, label: '未分类（清空分类）' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+                />
+                <Button
+                  loading={batchLoading}
+                  disabled={batchCategory === undefined}
+                  onClick={() => runBatch('category', batchCategory === 0 ? null : batchCategory)}
+                >
+                  批量改分类
+                </Button>
+              </Space.Compact>
+              <Button danger loading={batchLoading} onClick={confirmBatchDelete}>
+                批量删除
+              </Button>
+              <Button type="link" size="small" onClick={() => setSelectedIds([])}>
+                取消选择
+              </Button>
+            </Space>
+          </div>
+        )}
+
         <Table
           rowKey="id"
           columns={columns}
           dataSource={data}
           loading={loading}
+          rowSelection={
+            isManager
+              ? {
+                  selectedRowKeys: selectedIds,
+                  onChange: (keys) => setSelectedIds(keys as number[]),
+                  preserveSelectedRowKeys: false,
+                }
+              : undefined
+          }
           locale={{
             emptyText: keyword || filterCategory || filterType ? '没有符合条件的题目，换个筛选条件试试' : '题库还是空的，点右上角「新建题目」或「Excel 导入」开始建题',
           }}

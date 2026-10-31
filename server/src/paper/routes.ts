@@ -21,6 +21,13 @@ const paperSchema = z.object({
   shuffleOptions: z.boolean().optional(),
   randomRules: z.array(ruleSchema).optional(),
   questionIds: z.array(z.number().int()).optional(),
+  audienceMode: z.enum(['all', 'selected']).optional(),
+  audienceUserIds: z.array(z.number().int()).optional(),
+});
+
+const audienceSchema = z.object({
+  audienceMode: z.enum(['all', 'selected']),
+  audienceUserIds: z.array(z.number().int()).optional(),
 });
 
 export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -44,6 +51,7 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     const status = user.role === 'student' ? 'published' : typeof q.status === 'string' ? q.status : undefined;
     return service.listPapers(db, {
       status,
+      viewer: { userId: user.userId, role: user.role },
       page: q.page != null ? Number(q.page) : 1,
       pageSize: q.pageSize != null ? Number(q.pageSize) : 20,
     });
@@ -94,10 +102,34 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     return previewPaperById(db, Number(id));
   });
 
+  // 可见范围（发布弹窗里勾学生用）
+  app.get('/:id/audience', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    return service.getPaperAudience(db, Number(id));
+  });
+
+  app.put('/:id/audience', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    const body = audienceSchema.parse(request.body);
+    return service.setPaperAudience(db, Number(id), body.audienceMode, body.audienceUserIds ?? []);
+  });
+
   app.post('/:id/publish', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
+    // 发布时可以顺带指定可见范围：不传就沿用试卷原有的 audience_mode
+    const raw = request.body as unknown;
+    if (raw && typeof raw === 'object') {
+      const parsed = audienceSchema.partial().safeParse(raw);
+      if (parsed.success && parsed.data.audienceMode) {
+        await service.setPaperAudience(db, Number(id), parsed.data.audienceMode, parsed.data.audienceUserIds ?? []);
+      }
+    }
     await service.setPaperStatus(db, Number(id), 'published');
     return { ok: true };
   });

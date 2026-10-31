@@ -113,11 +113,28 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     return { ok: true };
   });
 
+  // 批量操作：改分类 / 删除（软删除）
+  app.post('/batch', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const body = z
+      .object({
+        ids: z.array(z.number().int()).min(1, '至少选一道题'),
+        action: z.enum(['delete', 'category']),
+        categoryId: z.number().int().nullable().optional(),
+      })
+      .parse(request.body);
+
+    if (body.action === 'delete') {
+      return service.batchDeleteQuestions(db, body.ids);
+    }
+    return service.batchSetCategory(db, body.ids, body.categoryId ?? null);
+  });
+
   app.delete('/:id', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
-    await service.deleteQuestion(db, Number(id));
-    return { ok: true };
+    return service.deleteQuestion(db, Number(id));
   });
 }

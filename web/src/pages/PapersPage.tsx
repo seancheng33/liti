@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
+  Divider,
   Empty,
   Form,
   Input,
@@ -24,17 +25,27 @@ import {
   EyeOutlined,
   InfoCircleOutlined,
   PlusOutlined,
+  TeamOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 import QuestionPicker from '../components/QuestionPicker';
 import PaperPreviewModal from '../components/PaperPreviewModal';
-import type { Category, Paper, PaperPreview, PaperRule, Question, SiteSettings } from '../types';
+import {
+  MAX_ATTEMPTS_PER_PAPER,
+  type Category,
+  type Paper,
+  type PaperPreview,
+  type PaperRule,
+  type Question,
+  type SiteSettings,
+  type StudentOption,
+} from '../types';
 
 const STATUS_COLOR: Record<string, string> = { draft: 'default', published: 'green', archived: 'orange' };
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', published: '已发布', archived: '已归档' };
@@ -62,8 +73,19 @@ export default function PapersPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState<PaperPreview | null>(null);
 
+  // 发布 / 可见范围
+  const [students, setStudents] = useState<StudentOption[]>([]);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishTarget, setPublishTarget] = useState<Paper | null>(null);
+  const [pubMode, setPubMode] = useState<'all' | 'selected'>('all');
+  const [pubIds, setPubIds] = useState<number[]>([]);
+  const [pubLoading, setPubLoading] = useState(false);
+
   const isManager = user?.role === 'admin' || user?.role === 'teacher';
+  const isStudent = user?.role === 'student';
   const mode = Form.useWatch('mode', form);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const autoStartedRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +104,25 @@ export default function PapersPage() {
     load();
     api.get<Category[]>('/api/categories').then(setCategories).catch(() => {});
     api.get<SiteSettings>('/api/settings').then(setSettings).catch(() => {});
-  }, [load]);
+    // 学生名册只有教师/管理员用得上（发布时勾人）
+    if (isManager) {
+      api.get<StudentOption[]>('/api/users/students').then(setStudents).catch(() => {});
+    }
+  }, [load, isManager]);
+
+  // 未登录点「开始答题」→ 登录页 → 回到这里时带 ?start=<paperId>，直接开考
+  useEffect(() => {
+    const target = searchParams.get('start');
+    if (!target || !user || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    const next = new URLSearchParams(searchParams);
+    next.delete('start');
+    setSearchParams(next, { replace: true });
+    api
+      .post<{ id: number }>('/api/attempts', { paperId: Number(target) })
+      .then((res) => navigate(`/exam/${res.id}`))
+      .catch((e) => message.error((e as Error).message));
+  }, [searchParams, user, setSearchParams, navigate]);
 
   function openCreate() {
     setPicked([]);
@@ -142,7 +182,7 @@ export default function PapersPage() {
     if (!payload) return;
     try {
       await api.post('/api/papers', payload);
-      message.success('试卷已创建，别忘了点「发布」才会对学生可见');
+      message.success('试卷已创建，点「发布」时可以选对哪些学生可见');
       setOpen(false);
       load();
     } catch (e) {
@@ -206,13 +246,45 @@ export default function PapersPage() {
     }
   }
 
-  async function publish(id: number) {
+  /** 打开发布 / 可见范围弹窗，先把该卷当前的名单读出来 */
+  async function openPublish(paper: Paper) {
+    setPublishTarget(paper);
+    setPubMode(paper.audience_mode === 'selected' ? 'selected' : 'all');
+    setPubIds(paper.audience_user_ids ?? []);
+    setPublishOpen(true);
     try {
-      await api.post(`/api/papers/${id}/publish`);
-      message.success('已发布');
+      const aud = await api.get<{ audienceMode: 'all' | 'selected'; audienceUserIds: number[] }>(
+        `/api/papers/${paper.id}/audience`,
+      );
+      setPubMode(aud.audienceMode);
+      setPubIds(aud.audienceUserIds);
+    } catch {
+      /* 草稿还没发布过，读不到就用默认值 */
+    }
+  }
+
+  async function confirmPublish() {
+    if (!publishTarget) return;
+    if (pubMode === 'selected' && !pubIds.length) {
+      message.warning('选了「指定学生」就要至少勾一个学生');
+      return;
+    }
+    setPubLoading(true);
+    try {
+      const body = { audienceMode: pubMode, audienceUserIds: pubIds };
+      if (publishTarget.status === 'published') {
+        await api.put(`/api/papers/${publishTarget.id}/audience`, body);
+        message.success('可见范围已更新');
+      } else {
+        await api.post(`/api/papers/${publishTarget.id}/publish`, body);
+        message.success(pubMode === 'selected' ? `已发布，仅 ${pubIds.length} 名学生可见` : '已发布，所有学生可见');
+      }
+      setPublishOpen(false);
       load();
     } catch (e) {
       message.error((e as Error).message);
+    } finally {
+      setPubLoading(false);
     }
   }
 
@@ -248,6 +320,40 @@ export default function PapersPage() {
     { title: '题量', dataIndex: 'question_count', width: 80 },
     { title: '时长', dataIndex: 'duration_sec', width: 90, render: (d: number) => `${Math.round(d / 60)} 分钟` },
     {
+      title: '可见范围',
+      dataIndex: 'audience_mode',
+      width: 120,
+      render: (m: string, r: Paper) =>
+        m === 'selected' ? (
+          <Tooltip title="只对点名的学生可见，其他人看不到这份卷子">
+            <Tag color="geekblue" icon={<TeamOutlined />}>
+              指定 {r.audience_count ?? 0} 人
+            </Tag>
+          </Tooltip>
+        ) : (
+          <Tag>所有学生</Tag>
+        ),
+    },
+    ...(isStudent
+      ? [
+          {
+            title: '作答次数',
+            key: 'attempts',
+            width: 120,
+            render: (_: unknown, r: Paper) => {
+              const left = r.remaining_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+              return (
+                <Tooltip title={`这份试卷最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，每次交卷后重新开始`}>
+                  <Typography.Text type={left === 0 ? 'danger' : left <= 1 ? 'warning' : 'secondary'}>
+                    {left > 0 ? `还可答 ${left} 次` : '次数已用完'}
+                  </Typography.Text>
+                </Tooltip>
+              );
+            },
+          },
+        ]
+      : []),
+    {
       title: '状态',
       dataIndex: 'status',
       width: 100,
@@ -256,21 +362,36 @@ export default function PapersPage() {
     {
       title: '操作',
       key: 'op',
-      width: 240,
-      render: (_: unknown, r: Paper) => (
-        <Space size={12}>
-          <Tooltip title="考生视角看一遍卷面，不含答案">
-            <a onClick={() => openPreview(r.id)}>预览</a>
-          </Tooltip>
-          {isManager && r.status !== 'published' && <a onClick={() => publish(r.id)}>发布</a>}
-          {r.status === 'published' && <a onClick={() => startExam(r)}>开始答题</a>}
-          {isManager && (
-            <Popconfirm title="确认删除该试卷？" okText="删除" cancelText="取消" onConfirm={() => remove(r.id)}>
-              <a style={{ color: '#e5484d' }}>删除</a>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      width: 260,
+      render: (_: unknown, r: Paper) => {
+        const left = r.remaining_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+        return (
+          <Space size={12} wrap>
+            <Tooltip title="考生视角看一遍卷面，不含答案">
+              <a onClick={() => openPreview(r.id)}>预览</a>
+            </Tooltip>
+            {isManager && r.status !== 'published' && <a onClick={() => openPublish(r)}>发布</a>}
+            {isManager && r.status === 'published' && (
+              <Tooltip title="指定哪些学生能看到这份卷子">
+                <a onClick={() => openPublish(r)}>可见范围</a>
+              </Tooltip>
+            )}
+            {r.status === 'published' &&
+              (left > 0 ? (
+                <a onClick={() => startExam(r)}>开始答题</a>
+              ) : (
+                <Tooltip title={`最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已经用完了`}>
+                  <span style={{ color: '#bbb', cursor: 'not-allowed' }}>次数已用完</span>
+                </Tooltip>
+              ))}
+            {isManager && (
+              <Popconfirm title="确认删除该试卷？" okText="删除" cancelText="取消" onConfirm={() => remove(r.id)}>
+                <a style={{ color: '#e5484d' }}>删除</a>
+              </Popconfirm>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -280,7 +401,7 @@ export default function PapersPage() {
     <div className="liti-page">
       <PageHeader
         title="试卷"
-        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建好后点「发布」，学生才能作答；点「预览」先看看卷面。"
+        description={`随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建好后点「发布」，发布时可以选让所有学生看到还是只给指定学生看。每份试卷最多作答 ${MAX_ATTEMPTS_PER_PAPER} 次，练习卷不受限。`}
         extra={
           <>
             {showPractice && (
@@ -315,6 +436,7 @@ export default function PapersPage() {
           columns={columns}
           dataSource={data}
           loading={loading}
+          scroll={{ x: 980 }}
           pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
         />
       </Card>
@@ -480,6 +602,79 @@ export default function PapersPage() {
         initial={picked}
         categories={categories}
       />
+
+      {/* ---------- 发布 / 可见范围 ---------- */}
+      <Modal
+        title={publishTarget?.status === 'published' ? '修改可见范围' : '发布试卷'}
+        open={publishOpen}
+        onCancel={() => setPublishOpen(false)}
+        onOk={confirmPublish}
+        okText={publishTarget?.status === 'published' ? '保存' : '发布'}
+        cancelText="取消"
+        confirmLoading={pubLoading}
+        width={620}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="发布后学生才能作答，可以选择让所有学生看到，或者只给点名的学生看"
+          description="指定学生之后，不在名单里的学生连这份卷子都看不到（不是只挡住「开始答题」）。"
+        />
+
+        <Divider orientation="left" plain style={{ margin: '4px 0 12px' }}>
+          谁能看到这份试卷
+        </Divider>
+
+        <Radio.Group value={pubMode} onChange={(e) => setPubMode(e.target.value)} style={{ marginBottom: 16 }}>
+          <Space direction="vertical" size={10}>
+            <Radio value="all">
+              <Space direction="vertical" size={0}>
+                <span>所有学生</span>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  发布了就能在所有人的试卷列表和首页看到
+                </Typography.Text>
+              </Space>
+            </Radio>
+            <Radio value="selected">
+              <Space direction="vertical" size={0}>
+                <span>指定学生</span>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  只给下面勾选的学生看，其他人看不到这份卷子
+                </Typography.Text>
+              </Space>
+            </Radio>
+          </Space>
+        </Radio.Group>
+
+        {pubMode === 'selected' && (
+          <>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={students.length ? '搜索并勾选学生' : '还没有学生账号，先去「用户管理」创建'}
+              value={pubIds}
+              onChange={(v) => setPubIds(v)}
+              optionFilterProp="label"
+              maxTagCount="responsive"
+              options={students.map((s) => ({ value: s.id, label: `${s.displayName}（${s.username}）` }))}
+              notFoundContent="没有可选的学生"
+            />
+            <Space style={{ marginTop: 8 }} size={10} wrap>
+              <Button size="small" onClick={() => setPubIds(students.map((s) => s.id))}>
+                全选（{students.length} 人）
+              </Button>
+              <Button size="small" onClick={() => setPubIds([])}>
+                清空
+              </Button>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                已选 {pubIds.length} 人
+              </Typography.Text>
+            </Space>
+          </>
+        )}
+      </Modal>
 
       {/* ---------- 随机练习 ---------- */}
       <Modal

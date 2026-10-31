@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Empty, Modal, Row, Space, Spin, Statistic, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Empty, Row, Space, Spin, Statistic, Tooltip, Typography, message } from 'antd';
 import {
   AppstoreOutlined,
   BookOutlined,
@@ -78,16 +78,9 @@ export default function HomePage() {
 
   async function startExam(paperId: number) {
     if (!user) {
-      Modal.confirm({
-        title: '需要先登录才能开始答题',
-        content: '登录后答题记录会保存到你的账号里，交卷后还能回看解析。页面右侧就是登录入口。',
-        okText: '去登录',
-        cancelText: '我先看看题目',
-        onOk: () => {
-          document.getElementById('home-login')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          document.getElementById('login-username')?.focus();
-        },
-      });
+      // 未登录：直接送去登录页，登录成功后回到试卷页并把这张卷子开起来
+      navigate(`/login?next=${encodeURIComponent(`/papers?start=${paperId}`)}`);
+      message.info('登录后就能开始答题，登录完会自动帮你打开这张卷子');
       return;
     }
     try {
@@ -153,7 +146,7 @@ export default function HomePage() {
           题库、组卷、答题、判分一条龙。看看下面的试卷，想练就直接进去；想自己出题，找老师要个账号。
         </Typography.Paragraph>
         <Space size={[8, 8]} wrap>
-          <Button type="primary" size="large" icon={<LoginOutlined />} onClick={() => scrollToLogin()}>
+          <Button type="primary" size="large" icon={<LoginOutlined />} onClick={() => navigate('/login')}>
             登录后开始答题
           </Button>
           <Button size="large" icon={<QuestionCircleOutlined />} onClick={() => navigate('/help')}>
@@ -168,7 +161,16 @@ export default function HomePage() {
         </Col>
         <Col xs={24} lg={8}>
           <div className="liti-home-side">
-            <Card id="home-login" title="登录" size="small">
+            <Card
+              id="home-login"
+              title="登录"
+              size="small"
+              extra={
+                <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate('/login')}>
+                  打开登录页
+                </Button>
+              }
+            >
               <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
                 账号由管理员或教师分配，登录后成绩会记录在你自己名下。
               </Typography.Paragraph>
@@ -222,11 +224,6 @@ export default function HomePage() {
       />
     </PublicShell>
   );
-}
-
-function scrollToLogin() {
-  document.getElementById('home-login')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  setTimeout(() => document.getElementById('login-username')?.focus(), 300);
 }
 
 interface HomeContentProps {

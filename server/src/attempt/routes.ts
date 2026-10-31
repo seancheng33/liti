@@ -66,6 +66,27 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     return { ok: true };
   });
 
+  // 题目标记（答题卡上的小旗）
+  app.patch('/:id/flag', async (request) => {
+    const user = authenticate(request);
+    const { id } = request.params as { id: string };
+    const body = z.object({ questionId: z.number().int(), flagged: z.boolean() }).parse(request.body);
+    return service.setFlag(db, Number(id), user.userId, body.questionId, body.flagged);
+  });
+
+  // 暂停 / 继续：暂停时计时停止，题面由服务端屏蔽
+  app.post('/:id/pause', async (request) => {
+    const user = authenticate(request);
+    const { id } = request.params as { id: string };
+    return service.pauseAttempt(db, Number(id), user.userId);
+  });
+
+  app.post('/:id/resume', async (request) => {
+    const user = authenticate(request);
+    const { id } = request.params as { id: string };
+    return service.resumeAttempt(db, Number(id), user.userId);
+  });
+
   app.post('/:id/violations', async (request) => {
     const user = authenticate(request);
     const { id } = request.params as { id: string };

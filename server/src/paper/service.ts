@@ -1,8 +1,11 @@
 import type { Kysely, Transaction } from 'kysely';
-import type { Database } from '../db/types.js';
+import type { AudienceMode, Database, Role } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { fisherYates, MAX_PAPER_QUESTIONS, validatePaperInput, type PaperInput, type RandomRule } from './validate.js';
+
+/** 每份试卷最多可作答次数（练习卷不受限） */
+export const MAX_ATTEMPTS_PER_PAPER = 3;
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
@@ -54,6 +57,7 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       random_config: input.mode === 'random' ? JSON.stringify(input.randomRules ?? []) : null,
       status: 'draft',
       practice: 0,
+      audience_mode: input.audienceMode ?? 'all',
       created_by: userId,
       created_at: now,
       updated_at: now,
@@ -67,7 +71,80 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       .values(questionIds.map((qid, i) => ({ paper_id: paperId, question_id: qid, order_no: i + 1, score: 1 })))
       .execute();
   }
+
+  if (input.audienceMode === 'selected' && input.audienceUserIds?.length) {
+    await writeAudience(db, paperId, input.audienceUserIds, now);
+  }
   return paperId;
+}
+
+/** 覆盖式写入可见名单（先清后插，简单且不会留下脏数据） */
+async function writeAudience(db: AnyDb, paperId: number, userIds: number[], now = Date.now()): Promise<void> {
+  const unique = [...new Set(userIds)];
+  await db.deleteFrom('paper_audience').where('paper_id', '=', paperId).execute();
+  if (!unique.length) return;
+  await db
+    .insertInto('paper_audience')
+    .values(unique.map((uid) => ({ paper_id: paperId, user_id: uid, created_at: now })))
+    .execute();
+}
+
+/** 发布时（或发布后）指定可见范围 */
+export async function setPaperAudience(
+  db: Db,
+  id: number,
+  mode: AudienceMode,
+  userIds: number[],
+): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[] }> {
+  const existing = await db.selectFrom('paper').select('id').where('id', '=', id).executeTakeFirst();
+  if (!existing) throw new HttpError(404, '试卷不存在');
+
+  const unique = [...new Set(userIds)];
+  if (mode === 'selected') {
+    if (!unique.length) throw new HttpError(400, '选择「指定学生」时至少要勾一个学生');
+    const valid = await db
+      .selectFrom('user')
+      .select('id')
+      .where('id', 'in', unique)
+      .where('role', '=', 'student')
+      .execute();
+    const validIds = new Set(valid.map((u) => u.id));
+    const bad = unique.filter((uid) => !validIds.has(uid));
+    if (bad.length) throw new HttpError(400, `以下用户不是学生或不存在：${bad.join(',')}`);
+  }
+
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .updateTable('paper')
+      .set({ audience_mode: mode, updated_at: Date.now() })
+      .where('id', '=', id)
+      .execute();
+    await writeAudience(trx, id, mode === 'selected' ? unique : []);
+  });
+
+  return { audienceMode: mode, audienceUserIds: mode === 'selected' ? unique : [] };
+}
+
+/** 读一份试卷的可见名单 */
+export async function getPaperAudience(db: Db, id: number): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[] }> {
+  const paper = await db.selectFrom('paper').select('audience_mode').where('id', '=', id).executeTakeFirst();
+  if (!paper) throw new HttpError(404, '试卷不存在');
+  const rows = await db.selectFrom('paper_audience').select('user_id').where('paper_id', '=', id).execute();
+  return { audienceMode: paper.audience_mode, audienceUserIds: rows.map((r) => r.user_id) };
+}
+
+/** 这个学生能不能看到/作答这份试卷 */
+export async function paperVisibleTo(db: Db, paperId: number, userId: number): Promise<boolean> {
+  const paper = await db.selectFrom('paper').select('audience_mode').where('id', '=', paperId).executeTakeFirst();
+  if (!paper) return false;
+  if (paper.audience_mode !== 'selected') return true;
+  const hit = await db
+    .selectFrom('paper_audience')
+    .select('id')
+    .where('paper_id', '=', paperId)
+    .where('user_id', '=', userId)
+    .executeTakeFirst();
+  return !!hit;
 }
 
 /** 把组卷入参解析成最终题号数组（随机抽样或手选校验） */
@@ -99,21 +176,77 @@ export async function getPaperDetail(db: Db, id: number) {
   const paper = await db.selectFrom('paper').selectAll().where('id', '=', id).executeTakeFirst();
   if (!paper) return null;
   const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', id).orderBy('order_no', 'asc').execute();
+  const audience = await db.selectFrom('paper_audience').select('user_id').where('paper_id', '=', id).execute();
   return {
     ...paper,
     random_config: paper.random_config ? JSON.parse(paper.random_config) : null,
+    audience_user_ids: audience.map((a) => a.user_id),
     items,
   };
 }
 
-export async function listPapers(db: Db, opts: { page?: number; pageSize?: number; status?: string }) {
+export async function listPapers(
+  db: Db,
+  opts: { page?: number; pageSize?: number; status?: string; viewer?: { userId: number; role: Role } },
+) {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(Math.max(1, opts.pageSize ?? 20), 100);
   let base = db.selectFrom('paper').where('practice', '=', 0);
   if (opts.status) base = base.where('status', '=', opts.status as 'draft' | 'published' | 'archived');
+
+  // 学生只能看到「公开」或「被点名」的卷子
+  const isStudent = opts.viewer?.role === 'student';
+  if (isStudent && opts.viewer) {
+    const viewerId = opts.viewer.userId;
+    base = base.where((eb) =>
+      eb.or([
+        eb('audience_mode', '=', 'all'),
+        eb(
+          'id',
+          'in',
+          eb.selectFrom('paper_audience').select('paper_id').where('user_id', '=', viewerId),
+        ),
+      ]),
+    );
+  }
+
   const total = Number((await base.select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
   const items = await base.selectAll().orderBy('id', 'desc').limit(pageSize).offset((page - 1) * pageSize).execute();
-  return { total, items };
+
+  // 可见名单人数（列表上显示「指定 N 人」，不用逐行再查一次）
+  const audienceRows = items.length
+    ? await db
+        .selectFrom('paper_audience')
+        .select(['paper_id', (eb) => eb.fn.countAll().as('c')])
+        .where('paper_id', 'in', items.map((i) => i.id))
+        .groupBy('paper_id')
+        .execute()
+    : [];
+  const audienceMap = new Map(audienceRows.map((r) => [Number(r.paper_id), Number(r.c)]));
+  const withAudience = items.map((p) => ({ ...p, audience_count: audienceMap.get(p.id) ?? 0 }));
+
+  // 学生视角附上「已作答次数 / 剩余次数」，前端才能把「开始答题」换成「已用完」
+  if (isStudent && opts.viewer && items.length) {
+    const rows = await db
+      .selectFrom('attempt')
+      .select(['paper_id', (eb) => eb.fn.countAll().as('c')])
+      .where('user_id', '=', opts.viewer.userId)
+      .where('paper_id', 'in', items.map((i) => i.id))
+      .where('status', 'in', ['submitted', 'expired'])
+      .groupBy('paper_id')
+      .execute();
+    const usedMap = new Map(rows.map((r) => [Number(r.paper_id), Number(r.c)]));
+    return {
+      total,
+      maxAttempts: MAX_ATTEMPTS_PER_PAPER,
+      items: withAudience.map((p) => {
+        const used = usedMap.get(p.id) ?? 0;
+        return { ...p, attempt_count: used, remaining_attempts: Math.max(0, MAX_ATTEMPTS_PER_PAPER - used) };
+      }),
+    };
+  }
+
+  return { total, maxAttempts: MAX_ATTEMPTS_PER_PAPER, items: withAudience };
 }
 
 export async function setPaperStatus(db: Db, id: number, status: 'draft' | 'published' | 'archived'): Promise<void> {
@@ -124,6 +257,7 @@ export async function setPaperStatus(db: Db, id: number, status: 'draft' | 'publ
 
 export async function deletePaper(db: Db, id: number): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('paper_audience').where('paper_id', '=', id).execute();
     await trx.deleteFrom('paper_item').where('paper_id', '=', id).execute();
     await trx.deleteFrom('paper').where('id', '=', id).execute();
   });

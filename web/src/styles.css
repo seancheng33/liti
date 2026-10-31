@@ -269,6 +269,34 @@ body {
   border-bottom: 1px solid var(--liti-border);
 }
 
+/* 勾选题目后浮出的批量工具条 */
+.liti-batch-bar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--liti-border);
+  background: var(--liti-primary-bg, rgba(22, 119, 255, 0.06));
+  animation: liti-fade-up 0.18s ease;
+}
+
+/* 暂停中的答卷：整块留白 + 居中提示，题面本来也没下发 */
+.liti-paused-card .ant-result {
+  padding: 40px 16px;
+}
+
+/* 答题卡上的「已标记」角标：白边小圆点，深色/浅色背景下都看得清 */
+.liti-sheet-flag {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--liti-warning, #faad14);
+  border: 1.5px solid var(--liti-surface, #fff);
+  box-sizing: content-box;
+}
+
 /* ---------- 题目卡片 ---------- */
 .liti-question-card .ant-card-head {
   border-bottom: 1px dashed var(--liti-border);

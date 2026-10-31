@@ -3,7 +3,7 @@ import type { Database, AttemptRow } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { parseImageList } from '../media.js';
-import { sampleQuestionIds, type SampleRule } from '../paper/service.js';
+import { MAX_ATTEMPTS_PER_PAPER, paperVisibleTo, sampleQuestionIds, type SampleRule } from '../paper/service.js';
 import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
@@ -14,13 +14,54 @@ function setsEqual(a: Set<number>, b: Set<number>): boolean {
   return true;
 }
 
+/** 已用掉的作答次数（交卷/超时都算，进行中不算） */
+async function usedAttempts(db: Db, paperId: number, userId: number): Promise<number> {
+  const row = await db
+    .selectFrom('attempt')
+    .select((eb) => eb.fn.countAll().as('c'))
+    .where('paper_id', '=', paperId)
+    .where('user_id', '=', userId)
+    .where('status', 'in', ['submitted', 'expired'])
+    .executeTakeFirstOrThrow();
+  return Number(row.c);
+}
+
 export async function startAttempt(db: Db, paperId: number, userId: number): Promise<number> {
   const paper = await db.selectFrom('paper').selectAll().where('id', '=', paperId).executeTakeFirst();
   if (!paper) throw new HttpError(404, '试卷不存在');
   if (paper.status !== 'published' && paper.practice !== 1) throw new HttpError(400, '试卷未发布，无法作答');
 
+  // 限定学生的卷子：不在名单里的一律当作不存在，别让人试出卷子标题
+  if (paper.practice !== 1 && !(await paperVisibleTo(db, paperId, userId))) {
+    throw new HttpError(404, '试卷不存在');
+  }
+
   const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', paperId).orderBy('order_no', 'asc').execute();
   if (!items.length) throw new HttpError(400, '试卷没有题目');
+
+  // 有一份还没交的答卷就接着答，而不是再开一张 —— 否则重复点「开始答题」
+  // 会白白占掉作答次数，学生也会发现之前写的答案没了
+  const running = await db
+    .selectFrom('attempt')
+    .selectAll()
+    .where('paper_id', '=', paperId)
+    .where('user_id', '=', userId)
+    .where('status', '=', 'in_progress')
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (running) {
+    const stale = running.paused_at == null && Date.now() > running.deadline_at;
+    if (!stale) return running.id;
+    // 已经超时的旧答卷先判掉，再走开新卷的流程
+    await gradeAttempt(db, running.id, 'timeout', 'expired');
+  }
+
+  if (paper.practice !== 1) {
+    const used = await usedAttempts(db, paperId, userId);
+    if (used >= MAX_ATTEMPTS_PER_PAPER) {
+      throw new HttpError(400, `这份试卷最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已用完 ${used} 次`);
+    }
+  }
 
   const totalScore = items.reduce((s, i) => s + i.score, 0);
   const now = Date.now();
@@ -38,6 +79,8 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
         score: 0,
         total_score: totalScore,
         correct_count: 0,
+        paused_at: null,
+        paused_total_ms: 0,
         created_at: now,
       })
       .executeTakeFirstOrThrow();
@@ -63,6 +106,7 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
           selected: null,
           is_correct: null,
           score: 0,
+          flagged: 0,
           answered_at: null,
         })
         .execute();
@@ -94,6 +138,7 @@ export async function startPractice(db: Db, userId: number, rules: SampleRule[],
         random_config: JSON.stringify(rules),
         status: 'draft',
         practice: 1,
+        audience_mode: 'all',
         created_by: userId,
         created_at: now,
         updated_at: now,
@@ -117,6 +162,8 @@ export async function startPractice(db: Db, userId: number, rules: SampleRule[],
         score: 0,
         total_score: questionIds.length,
         correct_count: 0,
+        paused_at: null,
+        paused_total_ms: 0,
         created_at: now,
       })
       .executeTakeFirstOrThrow();
@@ -141,6 +188,7 @@ export async function startPractice(db: Db, userId: number, rules: SampleRule[],
           selected: null,
           is_correct: null,
           score: 0,
+          flagged: 0,
           answered_at: null,
         })
         .execute();
@@ -202,6 +250,105 @@ async function getAttempt(db: Db, attemptId: number): Promise<Selectable<Attempt
   return db.selectFrom('attempt').selectAll().where('id', '=', attemptId).executeTakeFirst();
 }
 
+export interface PauseState {
+  paused: boolean;
+  pausedAt: number | null;
+  pausedTotalMs: number;
+  deadlineAt: number;
+  remainingSec: number;
+  /** 服务端当前时间：前端拿它校正本机时钟，别让考生机器的时间偏差影响倒计时 */
+  serverNow: number;
+}
+
+function pauseStateOf(a: Selectable<AttemptRow>): PauseState {
+  // 暂停期间剩余时间定格在「暂停那一刻」，而不是跟着真实时间继续掉
+  const ref = a.paused_at ?? Date.now();
+  return {
+    paused: a.paused_at != null,
+    pausedAt: a.paused_at,
+    pausedTotalMs: a.paused_total_ms,
+    deadlineAt: a.deadline_at,
+    remainingSec: Math.max(0, Math.floor((a.deadline_at - ref) / 1000)),
+    serverNow: Date.now(),
+  };
+}
+
+/**
+ * 暂停考试：计时停住，题目内容在服务端就被抹掉（不是前端遮一下而已）。
+ * 恢复时把 deadline 按暂停时长往后顺延 —— 所以「暂停中不许超时判分」这条必须守住，
+ * 否则暂停久了会被惰性判分直接判超时。
+ */
+export async function pauseAttempt(db: Db, attemptId: number, userId: number): Promise<PauseState> {
+  const attempt = await getAttempt(db, attemptId);
+  if (!attempt) throw new HttpError(404, '答卷不存在');
+  if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
+  if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已结束');
+  if (attempt.paused_at != null) return pauseStateOf(attempt);
+
+  if (Date.now() > attempt.deadline_at) {
+    await gradeAttempt(db, attemptId, 'timeout', 'expired');
+    throw new HttpError(400, '已超过答题时间');
+  }
+
+  const now = Date.now();
+  await db.updateTable('attempt').set({ paused_at: now }).where('id', '=', attemptId).execute();
+  return pauseStateOf({ ...attempt, paused_at: now });
+}
+
+/** 恢复考试：deadline 顺延，累计暂停时长记账 */
+export async function resumeAttempt(db: Db, attemptId: number, userId: number): Promise<PauseState> {
+  const attempt = await getAttempt(db, attemptId);
+  if (!attempt) throw new HttpError(404, '答卷不存在');
+  if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
+  if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已结束');
+  if (attempt.paused_at == null) return pauseStateOf(attempt);
+
+  const now = Date.now();
+  const delta = Math.max(0, now - attempt.paused_at);
+  const deadlineAt = attempt.deadline_at + delta;
+  const pausedTotalMs = attempt.paused_total_ms + delta;
+
+  await db
+    .updateTable('attempt')
+    .set({ paused_at: null, deadline_at: deadlineAt, paused_total_ms: pausedTotalMs })
+    .where('id', '=', attemptId)
+    .execute();
+
+  return {
+    paused: false,
+    pausedAt: null,
+    pausedTotalMs,
+    deadlineAt,
+    remainingSec: Math.max(0, Math.floor((deadlineAt - now) / 1000)),
+    serverNow: now,
+  };
+}
+
+/** 题目标记：只影响自己这张卷子的答题卡，不参与判分 */
+export async function setFlag(
+  db: Db,
+  attemptId: number,
+  userId: number,
+  questionId: number,
+  flagged: boolean,
+): Promise<{ flagged: boolean }> {
+  const attempt = await getAttempt(db, attemptId);
+  if (!attempt) throw new HttpError(404, '答卷不存在');
+  if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
+  if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已结束');
+
+  const item = await db
+    .selectFrom('attempt_item')
+    .select('id')
+    .where('attempt_id', '=', attemptId)
+    .where('question_id', '=', questionId)
+    .executeTakeFirst();
+  if (!item) throw new HttpError(404, '题目不在本答卷中');
+
+  await db.updateTable('attempt_item').set({ flagged: flagged ? 1 : 0 }).where('id', '=', item.id).execute();
+  return { flagged };
+}
+
 export async function saveAnswer(
   db: Db,
   attemptId: number,
@@ -213,6 +360,7 @@ export async function saveAnswer(
   if (!attempt) throw new HttpError(404, '答卷不存在');
   if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
   if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已结束');
+  if (attempt.paused_at != null) throw new HttpError(400, '试卷已暂停，请先点「继续答题」');
   if (Date.now() > attempt.deadline_at) {
     await gradeAttempt(db, attemptId, 'timeout', 'expired');
     throw new HttpError(400, '已超过答题时间');
@@ -242,11 +390,23 @@ export async function reportViolation(
   attemptId: number,
   userId: number,
   type: string,
-): Promise<{ count: number; autoSubmitted: boolean }> {
+): Promise<{ count: number; autoSubmitted: boolean; ignored?: boolean }> {
   const attempt = await getAttempt(db, attemptId);
   if (!attempt) throw new HttpError(404, '答卷不存在');
   if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
   if (attempt.status !== 'in_progress') return { count: 0, autoSubmitted: false };
+
+  // 暂停中切窗口是正常的（学生可能就是想切出去），不记违规
+  if (attempt.paused_at != null) {
+    const c = Number(
+      (await db
+        .selectFrom('attempt_violation')
+        .select((eb) => eb.fn.countAll().as('c'))
+        .where('attempt_id', '=', attemptId)
+        .executeTakeFirstOrThrow()).c,
+    );
+    return { count: c, autoSubmitted: false, ignored: true };
+  }
 
   await db.insertInto('attempt_violation').values({ attempt_id: attemptId, type, occurred_at: Date.now(), meta: null }).execute();
 
@@ -266,10 +426,16 @@ export async function reportViolation(
 }
 
 export async function submitAttempt(db: Db, attemptId: number, userId: number): Promise<void> {
-  const attempt = await getAttempt(db, attemptId);
+  let attempt = await getAttempt(db, attemptId);
   if (!attempt) throw new HttpError(404, '答卷不存在');
   if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
   if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已提交');
+
+  // 暂停中交卷：先自动恢复（deadline 要跟着顺延）再判分，别让学生卡在暂停状态出不来
+  if (attempt.paused_at != null) {
+    await resumeAttempt(db, attemptId, userId);
+    attempt = (await getAttempt(db, attemptId))!;
+  }
 
   if (Date.now() > attempt.deadline_at) {
     await gradeAttempt(db, attemptId, 'timeout', 'expired');
@@ -283,8 +449,9 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
   if (!attempt) throw new HttpError(404, '答卷不存在');
   if (attempt.user_id !== userId) throw new HttpError(403, '无权查看此答卷');
 
-  // 惰性判分：过期未交卷的在访问时补判
-  if (attempt.status === 'in_progress' && Date.now() > attempt.deadline_at) {
+  // 惰性判分：过期未交卷的在访问时补判。
+  // 暂停中不判 —— 暂停期间 deadline 不动，直接判就会把"暂停久了"当成超时。
+  if (attempt.status === 'in_progress' && attempt.paused_at == null && Date.now() > attempt.deadline_at) {
     await gradeAttempt(db, attemptId, 'timeout', 'expired');
   }
 
@@ -292,17 +459,24 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
   const paper = await db.selectFrom('paper').selectAll().where('id', '=', refreshed.paper_id).executeTakeFirst();
   const items = await db.selectFrom('attempt_item').selectAll().where('attempt_id', '=', attemptId).orderBy('order_no', 'asc').execute();
 
+  const paused = refreshed.paused_at != null;
+  // 试卷被暂停时，题面在服务端就抹掉 —— 前端只拿到空壳，扒 DOM 也看不到题
+  const masked = paused && refreshed.status === 'in_progress';
+
   const questionIds = items.map((i) => i.question_id);
-  const questions = questionIds.length ? await db.selectFrom('question').selectAll().where('id', 'in', questionIds).execute() : [];
+  const questions = masked || !questionIds.length ? [] : await db.selectFrom('question').selectAll().where('id', 'in', questionIds).execute();
   const qMap = new Map(questions.map((q) => [q.id, q]));
-  const options = questionIds.length ? await db.selectFrom('question_option').selectAll().where('question_id', 'in', questionIds).execute() : [];
-  const optMap = new Map<number, { id: number; content: string; is_correct: number; images: string | null }[]>();
+  const options =
+    masked || !questionIds.length
+      ? []
+      : await db.selectFrom('question_option').selectAll().where('question_id', 'in', questionIds).execute();
+  const optMap = new Map<number, { id: number; content: string; images: string | null; is_correct: number }[]>();
   for (const o of options) {
     if (!optMap.has(o.question_id)) optMap.set(o.question_id, []);
     optMap.get(o.question_id)!.push(o);
   }
 
-  const reveal = refreshed.status !== 'in_progress' || paper?.review_mode === 'immediate';
+  const reveal = !masked && (refreshed.status !== 'in_progress' || paper?.review_mode === 'immediate');
 
   return {
     id: refreshed.id,
@@ -317,6 +491,11 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
     correctCount: refreshed.correct_count,
     submitReason: refreshed.submit_reason,
     reviewMode: paper?.review_mode,
+    paused,
+    pausedAt: refreshed.paused_at,
+    pausedTotalMs: refreshed.paused_total_ms,
+    /** 服务端当前时间：前端据此校正本机时钟，倒计时才不会被考生机器的偏差带跑 */
+    serverNow: Date.now(),
     items: items.map((item) => {
       const q = qMap.get(item.question_id);
       const opts = optMap.get(item.question_id) ?? [];
@@ -326,17 +505,21 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
       return {
         orderNo: item.order_no,
         questionId: item.question_id,
+        // 暂停时这几项为空，题量/答题状态照常返回，答题卡还能显示
         type: q?.type,
         stem: q?.stem,
         images: parseImageList(q?.images),
         explanation: reveal ? (q?.explanation ?? null) : null,
-        options: optionOrder.map((oid) => ({
-          id: oid,
-          content: optById.get(oid)?.content ?? '',
-          images: parseImageList(optById.get(oid)?.images),
-          isCorrect: reveal ? optById.get(oid)?.is_correct === 1 : null,
-        })),
+        options: masked
+          ? []
+          : optionOrder.map((oid) => ({
+              id: oid,
+              content: optById.get(oid)?.content ?? '',
+              images: parseImageList(optById.get(oid)?.images),
+              isCorrect: reveal ? optById.get(oid)?.is_correct === 1 : null,
+            })),
         selectedOptionIds: selected,
+        flagged: item.flagged === 1,
         isCorrect: refreshed.status !== 'in_progress' ? item.is_correct === 1 : null,
         score: refreshed.status !== 'in_progress' ? item.score : null,
       };

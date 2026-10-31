@@ -36,6 +36,7 @@ export async function publicRoutes(app: FastifyInstance, opts: { db: Db }): Prom
           .select((eb) => eb.fn.countAll().as('c'))
           .where('status', '=', 'published')
           .where('practice', '=', 0)
+          .where('audience_mode', '=', 'all')
           .executeTakeFirstOrThrow()
       ).c,
     );
@@ -70,6 +71,8 @@ export async function publicRoutes(app: FastifyInstance, opts: { db: Db }): Prom
       .select(['id', 'title', 'question_count', 'duration_sec', 'pass_score', 'review_mode', 'shuffle_options', 'created_at'])
       .where('status', '=', 'published')
       .where('practice', '=', 0)
+      // 只对指定学生可见的卷子不进公开列表 —— 未登录的人本来也考不了
+      .where('audience_mode', '=', 'all')
       .orderBy('id', 'desc')
       .limit(MAX_PUBLIC_PAPERS)
       .execute();
@@ -94,10 +97,16 @@ export async function publicRoutes(app: FastifyInstance, opts: { db: Db }): Prom
     const paperId = Number(id);
     if (!Number.isInteger(paperId) || paperId <= 0) throw new HttpError(400, '试卷编号无效');
 
-    const row = await db.selectFrom('paper').select(['status', 'practice']).where('id', '=', paperId).executeTakeFirst();
+    const row = await db
+      .selectFrom('paper')
+      .select(['status', 'practice', 'audience_mode'])
+      .where('id', '=', paperId)
+      .executeTakeFirst();
     if (!row) throw new HttpError(404, '试卷不存在');
-    // 未发布的卷子对外一律当作不存在，避免草稿泄漏
-    if (row.status !== 'published' || row.practice !== 0) throw new HttpError(404, '试卷不存在');
+    // 未发布的卷子对外一律当作不存在，避免草稿泄漏；限定学生的卷子同理
+    if (row.status !== 'published' || row.practice !== 0 || row.audience_mode !== 'all') {
+      throw new HttpError(404, '试卷不存在');
+    }
 
     return previewPaperById(db, paperId);
   });

@@ -13,10 +13,43 @@
 | 全栈冒烟测试 | 1 | ✅ 通过 |
 | v0.2 功能验收（接口级） | 40 | ✅ SQLite / MySQL 各 40 通过 |
 | v0.3 功能验收（接口级） | 49 | ✅ SQLite 49/49、MySQL 49/49 |
-| 双库累计（v0.2 + v0.3） | 89 | ✅ 全绿 |
+| v0.4 功能验收（接口级） | 84 | ✅ SQLite 84/84、MySQL 84/84 |
+| v0.4 界面验收（无头 Edge） | 20 | ✅ 20/20，附 8 张截图 |
+| 双库累计（v0.2 + v0.3 + v0.4） | 173 | ✅ 全绿 |
 
 - 单元 + 集成共 **74 个用例**，`pnpm test` 全绿，`tsc --noEmit` 无类型错误。
 - E2E 覆盖完整刷题链路：登录 → 建题 → 组卷 → 发布 → 答题 → 交卷 → 解析。
+
+## v0.4 功能验收（84 项，SQLite 与 MySQL 双跑）
+
+脚本：`E:\workbuddy\网站优化\liti-features-v5.mjs`（纯 HTTP 打接口，逐条断言）
+界面：`E:\workbuddy\网站优化\liti-shot-v5.mjs`（无头 Edge + CDP，20 项断言 + 8 张截图）
+
+| 分组 | 覆盖点 |
+|---|---|
+| 登录跳转 | `/api/auth/me` 未登录 401；登录接口返回 token；带 `?next=` 的回跳目标只接受站内相对路径（`//evil.com`、`http://x` 一律落回 `/`） |
+| 题目软删除 | 删除返回 `{ archived: true, usedInPapers }`；`GET /api/questions` 不再出现；**已发布试卷的 preview / 作答 / 解析仍能取到该题全文**；删后可用同题干重建（查重排除归档） |
+| 批量操作 | `POST /api/questions/batch` 批量改分类（含 `null` 归未分类）、批量删除；空 ids 报 400；非教师 403；跨分类批量后逐条复核 |
+| 作答次数上限 | 新建卷最多 3 次：第 1/2/3 次开考成功，第 4 次 400 且文案含次数；进行中答卷重复开考**复用同一 attempt、不占次数**；`remaining_attempts` 随交卷递减 |
+| 暂停 / 继续 | `POST /:id/pause` 写 `pausedAt` 并返回 `serverNow`；暂停中 `saveAnswer` 被拒；`reportViolation` 返回 `ignored:true` 且不计数；暂停中 `GET review` 返回 `masked:true` 且 `items[].stem` 为空；`resume` 后 `deadlineAt` 相比暂停时**严格变大**、`remainingSec > 0` |
+| 题目标记 | `PATCH /:id/flag` 置位/取消；`GET review` 的 `items[].flagged` 与之一致；标记不影响判分 |
+| 可见范围 | `PUT /:id/audience` 设为 `selected` + 名单；名单内学生可见、名单外 404；`all` 恢复全员可见；`selected` 但名单为空报 400；学生的 `GET /api/papers` 与 `/api/public/papers` 均按白名单过滤；教师/管理员不受限 |
+| 时钟校正 | 暂停/恢复/回顾接口均带 `serverNow`（数值型），前端据 `serverNow - Date.now()` 做偏移 |
+| 文档 | `docs/docker-build.md` 两模式可照做；`docs/deployment.md` 同步更新 |
+
+### v0.4 界面验收（20 项）
+
+| # | 断言 |
+|---|---|
+| 1–3 | 未登录首页 Hero 的「登录」按钮可点进 `/login`；直接访问 `?start=<id>` 被弹到登录页且地址带 `next`；登录后自动回到试卷页并开考 |
+| 4–6 | 题库页勾选多行后浮出批量工具条，批量改分类生效；批量删除二次确认；单题删除提示「该题已被 N 份试卷引用，历史试卷不受影响」 |
+| 7–9 | 组卷页发布弹窗有「所有学生 / 指定学生」单选，选指定时学生多选框可全选/清空；未选人时发布按钮被拦 |
+| 10–13 | 答题页倒计时按服务端时间走；点「暂停」后整页换成「考试已暂停」卡片、题面不可见；点「继续考试」恢复 |
+| 14–16 | 答题卡上被标记的题号显示黄点角标；点击题目右侧「标记」按钮可切换；刷新后标记仍在 |
+| 17–18 | 切走标签页 2 秒后返回，出现违规遮罩且**不会自动消失**，需点「我知道了，继续答题」 |
+| 19–20 | 试卷列表在 1280 宽下不横向溢出；学生视角显示「还可答 N 次」 |
+
+截图存于 `E:\workbuddy\网站优化\liti-shots-v5\`（01 首页跳转、02 发布选学生、03 题库批量条、04 答题暂停、05 答题卡标记、06 违规遮罩、07 次数上限、08 学生视角列表）。
 
 ## v0.3 功能验收（49 项，SQLite 与 MySQL 双跑）
 
@@ -73,6 +106,16 @@
 | 22 | 新建试卷可预览 | `draft-preview` 不落库，试卷数不变 | v0.3 验收 |
 | 23 | 站内帮助文档 | `/help` 9 章 + 7 条 FAQ，未登录可读 | 截图 |
 | 24 | 各环节提示信息 | 表单 tooltip、规则 Alert、列表空状态文案 | 截图复查 |
+| 25 | 登录页面保留，点登录/开始答题跳登录页 | 原 `/login` 不动；`HomePage` 的 Hero 与试卷卡都改 `navigate('/login?next=…')`，`LoginPage` 用 `safeNext` 白名单回跳 | v0.4 界面 1–3 |
+| 26 | 批量改分类 / 批量删除 | `POST /api/questions/batch` + 前端浮出工具条 | v0.4 验收 + 界面 4–6 |
+| 27 | 删除题目不伤历史试卷 | 软删除（`status='archived'`），`paper_item` / `attempt_item` 引用不删 | v0.4 验收 |
+| 28 | 每份试卷最多答 3 次 | `MAX_ATTEMPTS_PER_PAPER`，进行中答卷复用不计数 | v0.4 验收 + 界面 7 |
+| 29 | 考试暂停（停表 + 屏蔽题面） | 只写 `paused_at`，resume 顺延 deadline；服务端 `masked` 不下发题面 | v0.4 验收 + 界面 10–13 |
+| 30 | 发布时指定可见 / 隐藏学生 | `audience_mode` + `paper_audience`，四处过滤点 | v0.4 验收 + 界面 8–9 |
+| 31 | 答题可标记题并在答题卡体现 | `attempt_item.flagged` + 答题卡黄点角标 | v0.4 验收 + 界面 14–16 |
+| 32 | 修复切换窗口/标签页未记录 | 三路监听（`visibilitychange` / `window.blur` / `pagehide`）+ 2s 去抖 + 返回不自动清遮罩 | v0.4 界面 17–18 + CDP 实测 |
+| 33 | 更新部署文档 | `docs/deployment.md` 重写网络/卷/健康检查/类型门禁 | 人工通读 |
+| 34 | 自建镜像文档（双数据库） | 新增 `docs/docker-build.md`，模式 A SQLite / 模式 B MySQL 各一套可照做流程 | 人工通读 + 实机构建 |
 
 ## 数据库
 
@@ -93,6 +136,11 @@
 5. 公开接口（`/api/public/*`）只暴露**数字统计**与**已发布试卷的题面**，不含作答者信息、不含答案与解析；草稿卷一律 404 —— 这是有意的，不要把公开预览扩成「带答案预览」。
 6. 草稿预览（`draft-preview`）按当前表单实时抽题，抽出来的题与真正创建时**不保证一致**（随机抽样每次都不同）；它的用途是看版式与题量，不是确认题目。
 7. 帮助文档是前端静态内容，改文案需重新构建前端镜像。
+8. **「删除题目」是软删除**：记录仍在库里（`status='archived'`），只是不再出现在题库列表、不再参与组卷与查重。想彻底清掉得直接动库 —— 这是为了保住历史试卷的可读性，属于有意设计。
+9. **3 次上限只统计「已交卷 / 已超时」的答卷**：开考后不交卷就一直挂着的那次不占次数，重新进入会复用同一张进行中的卷（题序、答案都还在）。上限是常量，改它要改 `paper/service.ts` 的 `MAX_ATTEMPTS_PER_PAPER` 并重新构建。
+10. **暂停没有总时长上限**：暂停期间不判超时、不计违规，理论上可以一直停着。若将来要加「最多暂停 N 次 / 累计 M 分钟」，需要在 `attempt` 上加计数字段（现有 `paused_total_ms` 已记录累计毫秒，可直接拿来做判断）。
+11. **可见范围是「白名单」语义**：`selected` 模式下名单为空等于谁都看不见，所以发布时强制至少选一人；名单外的学生访问试卷详情一律 404 而不是 403（不暴露该卷存在）。
+12. **切屏检测依赖浏览器事件**：隐身窗口、部分国产浏览器的「多标签预览」可能不触发 `visibilitychange`；`window.blur` 会在点击浏览器地址栏时也触发，属误报方向的安全取舍（宁可多报）。物理级拦截仍然只有 Electron 壳能做到。
 
 ## 复现测试
 
@@ -108,6 +156,16 @@ pnpm test:e2e      # E2E（需服务已启动）
 接口级版本验收（针对 Docker 部署实例，需先起服务）：
 
 ```bash
+# v0.4（84 项，双库各跑一遍）
+node E:/workbuddy/网站优化/liti-features-v5.mjs http://192.168.1.61:8080
+node E:/workbuddy/网站优化/liti-features-v5.mjs http://192.168.1.61:8081
+
+# v0.3 / v0.2 回归
 node E:/workbuddy/网站优化/liti-features-v4.mjs http://192.168.1.61:8080
-node E:/workbuddy/网站优化/liti-features-v4.mjs http://192.168.1.61:8081
+node E:/workbuddy/网站优化/liti-features-v3.mjs http://192.168.1.61:8080
+
+# 界面验收（无头 Edge，跑完出图到 liti-shots-v5/）
+node E:/workbuddy/网站优化/liti-shot-v5.mjs
 ```
+
+镜像自建流程见 [`docker-build.md`](./docker-build.md)，部署上线流程见 [`deployment.md`](./deployment.md)。

@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Select, Space, Typography, theme as antdTheme } from 'antd';
 import { ArrowLeftOutlined, BgColorsOutlined, QuestionCircleOutlined } from '@ant-design/icons';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../theme';
 import { api } from '../api';
 import LoginForm from '../components/LoginForm';
+
+/** 只接受站内相对路径，避免 ?next=https://evil 这种开放跳转 */
+function safeNext(raw: string | null): string {
+  if (!raw) return '/';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  return raw;
+}
 
 export default function LoginPage() {
   const { themeKey, presets, setThemeKey } = useTheme();
   const { token } = antdTheme.useToken();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const next = safeNext(searchParams.get('next'));
   const [site, setSite] = useState<{ siteName: string; siteAnnouncement: string }>({
     siteName: '砺题 Liti',
     siteAnnouncement: '',
@@ -21,6 +30,9 @@ export default function LoginPage() {
       .then(setSite)
       .catch(() => {});
   }, []);
+
+  // 登录后回到原来想去的地方（比如点了「开始答题」被拦下来的那张卷子）
+  const goNext = () => navigate(next, { replace: true });
 
   return (
     <div className="liti-login">
@@ -105,7 +117,13 @@ export default function LoginPage() {
               </Card>
             )}
 
-            <LoginForm autoFocus onSuccess={() => navigate('/', { replace: true })} />
+            {next !== '/' && (
+              <Typography.Paragraph type="secondary" style={{ marginTop: -4, fontSize: 13 }}>
+                登录后将自动回到你刚才要去的页面
+              </Typography.Paragraph>
+            )}
+
+            <LoginForm autoFocus onSuccess={goNext} />
           </Card>
 
           <Typography.Paragraph type="secondary" style={{ textAlign: 'center', fontSize: 12, marginTop: 16 }}>

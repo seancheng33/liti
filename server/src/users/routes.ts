@@ -40,6 +40,23 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     return rows;
   });
 
+  // 学生名册（教师也要用：发布试卷时挑可见学生）
+  // 只给 id / 用户名 / 显示名，不暴露密码哈希、会话等任何敏感字段
+  app.get('/students', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+
+    const rows = await db
+      .selectFrom('user')
+      .select(['id', 'username', 'display_name'])
+      .where('role', '=', 'student')
+      .where('status', '=', 'active')
+      .orderBy('id', 'asc')
+      .execute();
+
+    return rows.map((r) => ({ id: r.id, username: r.username, displayName: r.display_name }));
+  });
+
   // 创建用户（仅管理员）
   app.post('/', async (request) => {
     const user = authenticate(request);
@@ -137,6 +154,7 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
         await trx.deleteFrom('attempt').where('user_id', '=', Number(id)).execute();
       }
       await trx.deleteFrom('session').where('user_id', '=', Number(id)).execute();
+      await trx.deleteFrom('paper_audience').where('user_id', '=', Number(id)).execute();
       await trx.deleteFrom('user').where('id', '=', Number(id)).execute();
     });
 

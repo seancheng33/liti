@@ -54,8 +54,18 @@ export interface Paper {
   review_mode: 'after_submit' | 'immediate';
   shuffle_options: number;
   status: 'draft' | 'published' | 'archived';
+  audience_mode?: 'all' | 'selected';
+  audience_user_ids?: number[];
+  /** 指定可见的学生人数（列表用） */
+  audience_count?: number;
   random_config?: PaperRule[] | null;
+  /** 学生视角：已作答次数 / 剩余次数（教师/管理员看不到这两项） */
+  attempt_count?: number;
+  remaining_attempts?: number;
 }
+
+/** 每个学生最多可作答次数（练习卷不受限） */
+export const MAX_ATTEMPTS_PER_PAPER = 3;
 
 export interface AttemptOption {
   id: number;
@@ -73,6 +83,8 @@ export interface AttemptItem {
   explanation?: string | null;
   options: AttemptOption[];
   selectedOptionIds: number[];
+  /** 是否被考生标了「稍后再看」 */
+  flagged?: boolean;
   isCorrect: boolean | null;
   score: number | null;
 }
@@ -90,7 +102,20 @@ export interface AttemptReview {
   correctCount: number;
   submitReason: string | null;
   reviewMode?: string;
+  /** 考试暂停中（题面已被服务端屏蔽） */
+  paused?: boolean;
+  pausedAt?: number | null;
+  pausedTotalMs?: number;
+  /** 服务端返回时刻，用于校正本机时钟（倒计时不受考生电脑时间影响） */
+  serverNow?: number;
   items: AttemptItem[];
+}
+
+/** 发布试卷时可选择的学生 */
+export interface StudentOption {
+  id: number;
+  username: string;
+  displayName: string;
 }
 
 export interface AttemptSummary {
@@ -210,4 +235,9 @@ export const PAPER_STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   published: '已发布',
   archived: '已归档',
+};
+
+export const AUDIENCE_LABEL: Record<string, string> = {
+  all: '所有学生',
+  selected: '指定学生',
 };

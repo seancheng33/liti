@@ -110,7 +110,10 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
     });
   }
 
-  app.get('/health', async () => ({ ok: true, time: Date.now() }));
+  // 健康检查：根路径给容器/反代用，/api/health 给运维脚本用（文档里两种都出现过，统一都通）
+  const healthHandler = async () => ({ ok: true, time: Date.now() });
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   app.addHook('onClose', async () => {
     await db.destroy();

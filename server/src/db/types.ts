@@ -76,6 +76,8 @@ export interface ImportBatchRow {
 export type PaperMode = 'random' | 'fixed';
 export type ReviewMode = 'after_submit' | 'immediate';
 export type PaperStatus = 'draft' | 'published' | 'archived';
+/** all = 所有学生可见；selected = 只对 paper_audience 白名单里的学生可见 */
+export type AudienceMode = 'all' | 'selected';
 
 export interface PaperRow {
   id: Generated<number>;
@@ -89,9 +91,17 @@ export interface PaperRow {
   random_config: string | null;
   status: PaperStatus;
   practice: number;
+  audience_mode: AudienceMode;
   created_by: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface PaperAudienceRow {
+  id: Generated<number>;
+  paper_id: number;
+  user_id: number;
+  created_at: number;
 }
 
 export interface PaperItemRow {
@@ -116,6 +126,10 @@ export interface AttemptRow {
   total_score: number;
   correct_count: number;
   submit_reason: string | null;
+  /** 非空 = 当前正在暂停；恢复时按「now - paused_at」把 deadline 往后顺延 */
+  paused_at: number | null;
+  /** 累计暂停时长（毫秒），只用于展示 */
+  paused_total_ms: number;
   created_at: number;
 }
 
@@ -128,6 +142,8 @@ export interface AttemptItemRow {
   selected: string | null;
   is_correct: number | null;
   score: number;
+  /** 1 = 考生标记了「稍后再看」 */
+  flagged: number;
   answered_at: number | null;
 }
 
@@ -154,6 +170,7 @@ export interface Database {
   import_batch: ImportBatchRow;
   paper: PaperRow;
   paper_item: PaperItemRow;
+  paper_audience: PaperAudienceRow;
   attempt: AttemptRow;
   attempt_item: AttemptItemRow;
   attempt_violation: AttemptViolationRow;

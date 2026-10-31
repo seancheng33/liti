@@ -5,6 +5,9 @@
 
 本文档说明如何把砺题 Liti 部署到局域网环境，供多人访问使用。
 
+> 想用 Docker 部署？直接看 **[docker-build.md](./docker-build.md)** —— 从拉代码、构建镜像到 SQLite / MySQL
+> 两种模式运行、升级备份的完整手册都在那边。本文的第 11 节只是速查。
+
 ## 1. 环境要求
 
 - **Node.js** ≥ 20（推荐 22 或更高）
@@ -15,7 +18,7 @@
 ## 2. 获取代码
 
 ```bash
-git clone http://10.147.17.250:3000/sean/liti.git
+git clone http://192.168.1.88:3000/sean/liti.git
 cd liti
 ```
 
@@ -164,6 +167,9 @@ pnpm test:e2e      # E2E（需先启动服务）
 
 项目提供多阶段构建的 `Dockerfile`，构建产物内含后端 + 前端静态资源，单容器即可运行。
 
+> 📖 完整版（拉代码 → 构建 → 两种数据库模式 → 升级 → 备份 → 排错）见 **[docker-build.md](./docker-build.md)**。
+> 下面只是最常用的几条命令。
+
 ### 11.1 构建镜像
 
 ```bash
@@ -172,6 +178,7 @@ docker build -t liti:latest .
 
 > 构建走国内镜像加速（npm 依赖用 npmmirror，node-gyp 的 headers 用 npmmirror 的 node 镜像）。
 > 已跳过 electron 二进制下载（桌面壳只跑在本地，不进镜像）。
+> 构建过程会跑后端 `tsc` 与前端 `tsc --noEmit`，**类型不过就构建失败**。
 
 ### 11.2 运行（SQLite 模式）
 
@@ -179,12 +186,13 @@ docker build -t liti:latest .
 docker run -d --name liti -p 8080:8080 \
   -e SESSION_SECRET=请改成强随机串 \
   -v liti-data:/app/data \
+  --restart unless-stopped \
   liti:latest
 ```
 
 `/app/data` 同时存 SQLite 文件与题目配图（`/app/data/uploads`），一个卷就够。
 
-首次运行需初始化账号（容器内执行 seed）：
+首次运行需初始化账号（容器内执行 seed，幂等）：
 
 ```bash
 docker exec liti node server/dist/seed.js
@@ -193,26 +201,35 @@ docker exec liti node server/dist/seed.js
 ### 11.3 运行（MySQL 模式）
 
 ```bash
-# 1. 起 MySQL
-docker run -d --name liti-mysql -p 3306:3306 \
+# 1. 建一个容器网络，让应用能按容器名找到 MySQL
+docker network create liti-net
+
+# 2. 起 MySQL
+docker run -d --name liti-mysql --network liti-net \
   -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=liti \
+  -v liti-mysql-data:/var/lib/mysql \
   mysql:8
 
-# 2. 起应用（MYSQL_URL 指向 MySQL 容器 IP，或用 docker network）
-docker run -d --name liti -p 8080:8080 \
+# 3. 起应用（主机名用容器名 liti-mysql，不要写 127.0.0.1）
+docker run -d --name liti --network liti-net -p 8080:8080 \
   -e DB_DRIVER=mysql \
-  -e MYSQL_URL="mysql://root:root123@<mysql容器IP>:3306/liti" \
+  -e MYSQL_URL="mysql://root:root123@liti-mysql:3306/liti" \
   -e SESSION_SECRET=请改成强随机串 \
+  -v liti-uploads:/app/data \
   liti:latest
 ```
 
+> **MySQL 模式下也要挂 `/app/data`**：数据库在 MySQL 里，但题目配图仍然落在容器的
+> `/app/data/uploads`，不挂卷重建容器就全丢。
+>
 > 已验证：迁移 + CRUD + 组卷/答题/判分 + Excel 导出 + 统计在真实 MySQL 8 上全量通过（utf8mb4 中文存储正常）。
 
 ### 11.4 常用命令
 
 ```bash
-docker logs -f liti        # 查看日志
-docker exec liti node server/dist/seed.js   # 建初始账号
+docker logs -f liti                          # 查看日志
+docker exec liti node server/dist/seed.js    # 建初始账号（幂等，已存在会跳过）
+curl 127.0.0.1:8080/api/health               # 健康检查
 ```
 
 ---

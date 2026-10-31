@@ -19,6 +19,7 @@ export interface DuplicateHit {
  * 查重：先按 content_hash 精确命中；未命中再用宽松归一化比对一次，
  * 把「同一题换了标点/空格」也算重复。
  * 题干为空（纯图片题）时不做查重，否则所有图片题都会撞同一个哈希。
+ * 已删除（archived）的题目不参与查重 —— 删掉之后想重建同题不该被拦。
  */
 export async function findDuplicate(db: Db, stem: string, excludeId?: number): Promise<DuplicateHit | null> {
   if (!stem || !stem.trim()) return null;
@@ -27,7 +28,8 @@ export async function findDuplicate(db: Db, stem: string, excludeId?: number): P
   let exactQuery = db
     .selectFrom('question')
     .select(['id', 'stem', 'type'])
-    .where('content_hash', '=', hash);
+    .where('content_hash', '=', hash)
+    .where('status', '=', 'active');
   if (excludeId != null) exactQuery = exactQuery.where('id', '!=', excludeId);
   const exact = await exactQuery.executeTakeFirst();
   if (exact) return { ...exact, match: 'exact' };
@@ -35,7 +37,7 @@ export async function findDuplicate(db: Db, stem: string, excludeId?: number): P
   const key = normalizeLoose(stem);
   if (!key) return null;
 
-  let allQuery = db.selectFrom('question').select(['id', 'stem', 'type']);
+  let allQuery = db.selectFrom('question').select(['id', 'stem', 'type']).where('status', '=', 'active');
   if (excludeId != null) allQuery = allQuery.where('id', '!=', excludeId);
   const rows = await allQuery.execute();
   const hit = rows.find((r) => normalizeLoose(r.stem) === key);
@@ -149,11 +151,75 @@ export async function updateQuestion(
   });
 }
 
-export async function deleteQuestion(db: Db, id: number): Promise<void> {
-  await db.transaction().execute(async (trx) => {
-    await trx.deleteFrom('question_option').where('question_id', '=', id).execute();
-    await trx.deleteFrom('question').where('id', '=', id).execute();
-  });
+/** 单题删除的结果：让前端能提示「这题还在 N 份试卷里」 */
+export interface ArchiveResult {
+  archived: number;
+  /** 这些题目被多少份试卷引用（含草稿卷与已发布卷） */
+  usedInPapers: number;
+}
+
+/** 统计一批题目分别被哪些试卷引用（去重到试卷数） */
+async function countUsedInPapers(db: Db, ids: number[]): Promise<number> {
+  if (!ids.length) return 0;
+  const row = await db
+    .selectFrom('paper_item')
+    .select((eb) => eb.fn.countAll().as('c'))
+    .where('question_id', 'in', ids)
+    .executeTakeFirstOrThrow();
+  return Number(row.c);
+}
+
+/**
+ * 删除题目 = **软删除**（status 置为 archived）。
+ *
+ * 为什么不做物理删除：paper_item / attempt_item 都只存 question_id，
+ * 物理删掉之后历史试卷（尤其是已发布、还没人考的卷子）和已交卷的解析
+ * 就再也拼不出题面了。归档之后题库列表看不见它，但凡是引用了它的试卷
+ * 依然能正常预览、作答、判分、看解析。
+ */
+export async function deleteQuestion(db: Db, id: number): Promise<ArchiveResult> {
+  const existing = await db.selectFrom('question').select(['id', 'status']).where('id', '=', id).executeTakeFirst();
+  if (!existing) throw new HttpError(404, '题目不存在');
+
+  const usedInPapers = await countUsedInPapers(db, [id]);
+  if (existing.status !== 'archived') {
+    await db.updateTable('question').set({ status: 'archived', updated_at: Date.now() }).where('id', '=', id).execute();
+  }
+  return { archived: 1, usedInPapers };
+}
+
+/** 批量删除（同样是软删除） */
+export async function batchDeleteQuestions(db: Db, ids: number[]): Promise<ArchiveResult> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return { archived: 0, usedInPapers: 0 };
+
+  const rows = await db.selectFrom('question').select('id').where('id', 'in', unique).where('status', '=', 'active').execute();
+  const activeIds = rows.map((r) => r.id);
+  const usedInPapers = await countUsedInPapers(db, unique);
+
+  if (activeIds.length) {
+    await db.updateTable('question').set({ status: 'archived', updated_at: Date.now() }).where('id', 'in', activeIds).execute();
+  }
+  return { archived: activeIds.length, usedInPapers };
+}
+
+/** 批量改分类（categoryId = null 表示改成未分类） */
+export async function batchSetCategory(db: Db, ids: number[], categoryId: number | null): Promise<{ updated: number }> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return { updated: 0 };
+
+  if (categoryId != null) {
+    const cat = await db.selectFrom('category').select('id').where('id', '=', categoryId).executeTakeFirst();
+    if (!cat) throw new HttpError(404, '分类不存在');
+  }
+
+  const result = await db
+    .updateTable('question')
+    .set({ category_id: categoryId, updated_at: Date.now() })
+    .where('id', 'in', unique)
+    .where('status', '=', 'active')
+    .executeTakeFirst();
+  return { updated: Number(result.numUpdatedRows ?? 0) };
 }
 
 export interface QuestionDetail {
@@ -233,7 +299,11 @@ export async function listQuestions(
   if (filter.keyword) base = base.where('stem', 'like', `%${filter.keyword}%`);
   if (filter.categoryId != null) base = base.where('category_id', '=', filter.categoryId);
   if (filter.type) base = base.where('type', '=', filter.type as 'single' | 'multiple');
-  if (filter.status) base = base.where('status', '=', filter.status as 'active' | 'archived');
+  // 默认只看在用题目：删除是软删除（status=archived），不显式指定就按 active 过滤，
+  // 想看归档的传 status=all
+  if (filter.status !== 'all') {
+    base = base.where('status', '=', (filter.status ?? 'active') as 'active' | 'archived');
+  }
 
   const countRow = await base.select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow();
   const total = Number(countRow.c);

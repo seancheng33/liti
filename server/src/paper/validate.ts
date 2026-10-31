@@ -1,4 +1,4 @@
-import type { ReviewMode } from '../db/types.js';
+import type { AudienceMode, ReviewMode } from '../db/types.js';
 
 export interface RandomRule {
   categoryId?: number | null;
@@ -14,6 +14,9 @@ export interface PaperInput {
   shuffleOptions?: boolean;
   randomRules?: RandomRule[];
   questionIds?: number[];
+  /** all = 所有学生可见（默认）；selected = 只给 audienceUserIds 里的学生看 */
+  audienceMode?: AudienceMode;
+  audienceUserIds?: number[];
 }
 
 export const MAX_PAPER_QUESTIONS = 100;
@@ -38,6 +41,10 @@ export function validatePaperInput(input: PaperInput): string[] {
     if (ids.length < 1 || ids.length > MAX_PAPER_QUESTIONS) {
       errors.push(`题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
     }
+  }
+
+  if (input.audienceMode === 'selected' && !(input.audienceUserIds ?? []).length) {
+    errors.push('选择「指定学生」时至少要勾一个学生');
   }
   return errors;
 }

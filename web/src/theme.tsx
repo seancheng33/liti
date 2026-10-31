@@ -125,6 +125,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       '--liti-text': token.colorText,
       '--liti-text-2': token.colorTextSecondary,
       '--liti-text-3': token.colorTextTertiary,
+      '--liti-warning': token.colorWarning,
+      '--liti-success': token.colorSuccess,
+      '--liti-danger': token.colorError,
       '--liti-radius': `${token.borderRadiusLG}px`,
       '--liti-shadow': token.boxShadowTertiary,
     };

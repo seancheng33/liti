@@ -71,7 +71,8 @@ const FAQ = [
     children: (
       <Paragraph>
         试卷创建后默认是 <Tag>草稿</Tag> 状态，只有改成 <Tag color="green">已发布</Tag> 才会出现在学生端和首页。
-        另外学生端只有「已发布」的卷子能作答，草稿对他们是不可见的。
+        另外如果发布时选了 <Tag color="geekblue">指定学生</Tag>，没被点名的学生也看不到这份卷子 ——
+        去试卷列表点「可见范围」确认一下名单。
       </Paragraph>
     ),
   },
@@ -80,8 +81,29 @@ const FAQ = [
     label: '答题中途切到别的窗口会怎样？',
     children: (
       <Paragraph>
-        系统会检测切换窗口：先弹出遮罩提醒，累计 <Text strong>3 次</Text> 会自动强制交卷，交卷原因记为
-        「异常：违规强制交卷」。答题过程中答案会自动保存，即使浏览器崩溃，重新进入也能接着答（在时限内）。
+        系统会检测切换窗口和标签页：回来时弹窗提醒并记一次违规，累计 <Text strong>3 次</Text> 会自动强制交卷，
+        交卷原因记为「异常：违规强制交卷」。需要离开一会儿请用「暂停」，暂停期间计时停止、题面隐藏，切屏也不算违规。
+        答题过程中答案会自动保存，即使浏览器崩溃，重新进入也能接着答（在时限内）。
+      </Paragraph>
+    ),
+  },
+  {
+    key: 'q5b',
+    label: '删除题目会影响以前考过的试卷吗？',
+    children: (
+      <Paragraph>
+        不会。删除只是把题目从题库隐藏（不再出现在列表、不会被新卷抽到），
+        但已经组进试卷的题目会完整保留 —— 老试卷还能预览、还能作答，已经交卷的解析也照常显示。
+      </Paragraph>
+    ),
+  },
+  {
+    key: 'q5c',
+    label: '一份试卷可以考几次？',
+    children: (
+      <Paragraph>
+        默认 3 次。只有交卷或超时才算用掉一次；开了卷没交就退出去，再点「开始答题」会接着那张卷子继续。
+        次数用完之后按钮会变成灰色的「次数已用完」。练习卷不计次数。
       </Paragraph>
     ),
   },
@@ -190,7 +212,7 @@ function HelpBody() {
               type="info"
               showIcon
               message="没登录也能先逛逛"
-              description="首页不需要登录就能看到题库规模、已发布试卷，以及每份卷子的题面预览。点「开始答题」时才会提示登录。"
+              description="首页不需要登录就能看到题库规模、已发布试卷，以及每份卷子的题面预览。点「开始答题」会跳到登录页，登录完自动把你带回那张卷子并开考。"
             />
           </Card>
 
@@ -224,12 +246,20 @@ function HelpBody() {
               <Text>· 题干最多 6 张图，每个选项最多 3 张图。</Text>
               <Text>· 图片格式 png / jpg / webp / gif，单张 4 MB 以内。</Text>
               <Text>· 保存时会自动和已有题目查重，命中重复会先问你。</Text>
+              <Text>· 勾选左侧方框可以<Text strong>批量改分类</Text>或<Text strong>批量删除</Text>。</Text>
             </Space>
             <Alert
               type="warning"
               showIcon
               message="选择题至少要有一个正确答案"
               description="单选题只能勾一个正确选项，多选题至少勾两个。选项少于两个的题目保存会被拦下。"
+            />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="删除题目只是从题库移除，已经组进试卷的照常显示"
+              description="历史试卷、已发布试卷和已经交过的答卷里，这道题依然能正常看到题面和解析；只是它不会再出现在题库列表，也不会被新的随机抽题抽到。"
             />
           </Card>
 
@@ -285,6 +315,29 @@ function HelpBody() {
             <Alert
               type="info"
               showIcon
+              style={{ marginBottom: 12 }}
+              message="发布时可以选「对哪些学生可见」"
+              description={
+                <Space direction="vertical" size={2}>
+                  <Text>
+                    <Tag>所有学生</Tag>：发布后出现在所有人的试卷列表和首页。
+                  </Text>
+                  <Text>
+                    <Tag color="geekblue">指定学生</Tag>：只给点名的学生看。不在名单里的学生连这份卷子都看不到，
+                    不是只挡住「开始答题」。发布后还能点「可见范围」随时改。
+                  </Text>
+                </Space>
+              }
+            />
+            <Alert
+              type="info"
+              showIcon
+              message="每份试卷最多作答 3 次"
+              description="交卷或超时才算用掉一次；中途退出再点「开始答题」会接着上次那张卷子，不会白白占次数。练习卷不受这个限制。"
+            />
+            <Alert
+              type="info"
+              showIcon
               message="其他参数"
               description={
                 <Space direction="vertical" size={2}>
@@ -303,13 +356,26 @@ function HelpBody() {
             </Title>
             <Paragraph>
               答题页是一题一张卡片，卡片下方有答题卡，可以点题号跳转，已答的题会标绿。
-              顶部显示剩余时间、已答题数和违规次数。
+              顶部显示剩余时间、已答题数、标记题数和违规次数。
             </Paragraph>
-            <Space direction="vertical" size={6}>
+            <Space direction="vertical" size={6} style={{ marginBottom: 12 }}>
               <Text>· 每次选择都会自动保存，刷新或断网重连后接着答。</Text>
+              <Text>
+                · 拿不准的题点右上角「标记」，答题卡上会出现小圆点，全部标记的题回头一起看。
+              </Text>
+              <Text>
+                · 需要临时离开，点「暂停」：计时停止，题面会被隐藏起来，回来点「继续考试」接着答。
+                暂停时长不计入考试时间。
+              </Text>
               <Text>· 切换窗口 / 标签页会被记录，累计 3 次自动强制交卷。</Text>
               <Text>· 倒计时归零自动交卷，已答的题照常判分。</Text>
             </Space>
+            <Alert
+              type="warning"
+              showIcon
+              message="离开页面会被记一次违规"
+              description="切到别的标签页、切到别的程序、直接关掉页面，回来都会弹窗提醒并记一次。要离开一会儿请用「暂停」，暂停期间的切屏不算违规。累计 3 次自动强制交卷。"
+            />
           </Card>
 
           <Card id="review" style={{ marginBottom: 16 }}>

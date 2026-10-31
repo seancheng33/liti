@@ -83,17 +83,20 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `user` | id, username, display_name, password_hash?, role, provider(local/oidc), external_id, status |
+| `user` | id, username, display_name, password_hash?, role, provider(local/oidc), external_id, status, prefs(JSON) |
 | `session` | id, user_id, token_hash, expires_at, ip, ua |
 | `category` | id, name, parent_id, sort |
-| `question` | id, type(single/multiple), stem, explanation, category_id, difficulty(1-3), status, content_hash, created_by, created_at, updated_at |
-| `question_option` | id, question_id, content, is_correct, sort_order |
-| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, created_by |
+| `question` | id, type(single/multiple), stem, images(JSON), explanation, category_id, tags(JSON), status(active/archived), content_hash, created_by, created_at, updated_at |
+| `question_option` | id, question_id, content, images(JSON), is_correct, sort_order |
+| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, **audience_mode(all/selected)**, created_by |
 | `paper_item` | id, paper_id, question_id, order_no, score |
-| `attempt` | id, paper_id, user_id, started_at, deadline_at, submitted_at, status, score, correct_count, submit_reason |
-| `attempt_item` | id, attempt_id, question_id, order_no, option_order(JSON), selected(JSON), is_correct, score, answered_at |
+| `paper_audience` | id, paper_id, user_id, created_at —— 可见白名单（`audience_mode=selected` 时生效） |
+| `attempt` | id, paper_id, user_id, started_at, deadline_at, submitted_at, status, score, correct_count, submit_reason, **paused_at**, **paused_total_ms** |
+| `attempt_item` | id, attempt_id, question_id, order_no, option_order(JSON), selected(JSON), is_correct, score, **flagged**, answered_at |
 | `attempt_violation` | id, attempt_id, type, occurred_at, meta |
 | `import_batch` | id, filename, total, success, failed, errors(JSON), created_by, created_at |
+
+> 加粗字段是 v0.4 新增（迁移 `0008_exam_enhance`）。
 
 **可移植性约定（SQLite / MySQL 双库关键）**
 
@@ -118,16 +121,59 @@
 
 ### 6.3 计时与交卷
 
-- 服务端下发 `started_at` + `deadline_at`，客户端以服务器时间校准后倒计时。
+- 服务端下发 `started_at` + `deadline_at`，**并把 `serverNow` 一起返回**；前端算 `offset = serverNow - 本机时间`，
+  倒计时一律按服务端时钟推，考生电脑时间不准也不会算错。
 - 答案逐题自动保存，断网 / 刷新可恢复。
-- 到点：客户端自动交卷；服务端拒绝超时提交，并有定时任务把过期未交卷标记为 `expired` 并按已存答案判分。**服务端是唯一裁判**，改本地时间无效。
+- 到点：客户端自动交卷；服务端拒绝超时提交，并在访问答卷时把过期未交卷标记为 `expired` 并按已存答案判分。**服务端是唯一裁判**，改本地时间无效。
+
+### 6.3.1 暂停 / 继续（v0.4）
+
+- `POST /:id/pause` 只写 `paused_at`，**不动 `deadline_at`**；`POST /:id/resume` 时把
+  `deadline_at += (now - paused_at)` 并累加 `paused_total_ms`。这样「剩余时间」在暂停前后连续，不用两套口径。
+- 暂停期间：`getAttemptReview` 直接**不下发题干与选项**（`masked`），存答案 / 交卷 / 超时惰性判分全部拦掉。
+  注意「暂停中不做惰性判分」是必须的，否则暂停久了会被当成超时。
+- 暂停期间上报的切屏**不计违规**（学生就是要离开），前端也不再监听。
+- 暂停中交卷会先自动 resume 再判分，避免学生卡在暂停态出不来。
 
 ### 6.4 防切屏（Web 版能力边界）
 
-- 开考请求全屏；监听 `visibilitychange / blur / fullscreenchange` → 立即遮罩、锁定作答、提示回到答题页。
+- 三路监听，缺一条就会漏记：
+  - `visibilitychange` → `hidden`（切标签页 / 最小化 / 切程序，最可靠）
+  - `window.blur`（点别的窗口但页面仍可见）—— 注意 `blur` 不冒泡，必须挂在 `window` 上，挂在 `document` 收不到
+  - `pagehide`（关页面 / 前进后退）
+- 一次切窗会连触发 `visibilitychange` + `blur`，所以上报做 **2s 去抖**，一次只记一次。
 - 违规次数由**服务端**累加（防前端篡改），第 3 次自动交卷，`submit_reason=violation`。
+- 回来时不清遮罩，弹窗提示「本次已记违规（第 N 次）」，需要点「继续答题」才关掉 —— 否则学生根本看不到惩罚。
 - 计时不暂停；屏蔽右键 / 复制 / 粘贴 / 选中。
 - **边界说明**：浏览器无法真正阻止 Alt+Tab / Win 键，只能「检测 + 遮罩 + 惩罚」。物理级拦截留待 Phase 2 的 Electron 壳（全屏 kiosk + alwaysOnTop + 失焦拉回），`ExamGuard` 接口已预留。
+
+### 6.4.1 题目标记（v0.4）
+
+`attempt_item.flagged` 一对一存，不在前端本地存 —— 否则换设备 / 刷新就丢。
+只影响答题卡显示，不参与判分。
+
+### 6.4.2 作答次数上限（v0.4）
+
+- `MAX_ATTEMPTS_PER_PAPER = 3`，统计 `status in (submitted, expired)` 的答卷数。进行中的不算。
+- 开考时若已有 `in_progress` 答卷且未过期，**直接复用**（返回同一个 id），不新开也不占次数 ——
+  否则学生刷新几次就把 3 次用完了。
+- 练习卷（`practice=1`）不受限。
+- 学生列表附带 `attempt_count / remaining_attempts`，前端据此把「开始答题」换成「次数已用完」。
+
+### 6.4.3 试卷可见范围（v0.4）
+
+- `paper.audience_mode`：`all`（默认）/ `selected`；名单存 `paper_audience`。
+- 过滤点有四处，缺一处就会漏：学生 `GET /api/papers`、`POST /api/attempts`、`GET /api/public/papers`、
+  `GET /api/public/papers/:id`。**不在名单里一律按 404「试卷不存在」处理**，别让人试出标题。
+- 可见名单只有 admin/teacher 能读写；学生名册接口 `/api/users/students` 只返回 id / 用户名 / 显示名。
+
+### 6.4.4 题目删除 = 软删除（v0.4）
+
+- `DELETE /api/questions/:id` 只把 `status` 置为 `archived`，**不物理删行**。
+- 原因：`paper_item` / `attempt_item` 只存 `question_id`，物理删除后历史试卷与已交答卷的解析就拼不出题面了。
+- 附带影响：题库列表默认只查 `active`；随机抽题与手选组卷只认 `active`；查重排除 `archived`（删掉后可以重建成同题）；
+  统计与公开概览只算 `active`。
+- 删除接口返回 `usedInPapers`，前端据此提示「这题还在 N 份试卷里，那些试卷照常能看能考」。
 
 ### 6.5 Excel 导入
 
@@ -167,22 +213,31 @@ GET  /api/settings/public                    # 站名与公告
 
 # 题库
 GET/POST     /api/questions
-GET/PUT/DELETE /api/questions/:id
+GET/PUT/DELETE /api/questions/:id            # DELETE = 软删除（status→archived）
+POST         /api/questions/batch            # { ids, action: 'delete' | 'category', categoryId? }
 POST         /api/questions/import           # dryRun=true 预校验
 GET          /api/questions/template         # xlsx，题型列为下拉
 
 # 试卷
-GET/POST     /api/papers                     # 列表：学生只拿到已发布
+GET/POST     /api/papers                     # 列表：学生只拿到已发布 + 自己可见的
 GET/PUT/DELETE /api/papers/:id
-POST         /api/papers/:id/publish
+POST         /api/papers/:id/publish         # body 可带 { audienceMode, audienceUserIds }
+GET          /api/papers/:id/audience        # 可见名单
+PUT          /api/papers/:id/audience        # 发布后改可见范围
 POST         /api/papers/random-preview      # 抽样题号预览（不落库）
 POST         /api/papers/draft-preview       # 新建时按表单入参预览整卷（不落库）
 GET          /api/papers/:id/preview         # 已存在试卷预览（草稿也可，需教师/管理员）
 
+# 学生名册（发布挑人；只给 id/用户名/显示名）
+GET          /api/users/students
+
 # 答题
-POST         /api/attempts                   # 开考
+POST         /api/attempts                   # 开考（复用进行中答卷；超出 3 次报 400）
 PATCH        /api/attempts/:id/answers       # 自动保存
-POST         /api/attempts/:id/violations    # 违规上报
+PATCH        /api/attempts/:id/flag          # 题目标记
+POST         /api/attempts/:id/pause         # 暂停：停表 + 服务端屏蔽题面
+POST         /api/attempts/:id/resume        # 继续：deadline 按暂停时长顺延
+POST         /api/attempts/:id/violations    # 违规上报（暂停中忽略）
 POST         /api/attempts/:id/submit        # 交卷
 GET          /api/attempts/:id/review        # 结果与解析
 GET          /api/attempts?mine=1            # 我的记录
@@ -223,7 +278,7 @@ GET  /api/meta
 
 1. **看门面**：Hero（站名 + 一句话介绍 + 公告）+ 4 张统计卡（题目数 / 试卷数 / 答题人次 / 用户数），数据来自 `GET /api/public/overview`。
 2. **看卷面**：已发布试卷卡片网格（`GET /api/public/papers`），点卡片任意位置弹出 `PaperPreviewModal` 预览题面 —— **不含答案与解析**，元信息只显示题量/时长/及格分。
-3. **开始答题**：点「开始答题」时若未登录，`Modal.confirm` 提示「需要先登录才能开始答题」，确认后滚动到右侧登录卡并聚焦用户名输入框（`#login-username`）。
+3. **开始答题**：点「开始答题」时若未登录，直接 `navigate('/login?next=/papers?start=<paperId>')` —— 登录成功后由 `LoginPage` 读 `next` 自动回跳并立即开考（v0.4 由「滚动+聚焦」改为「跳转」，因为滚动提示在窄屏上和卡片重叠时容易被忽略）。带头部的「登录」按钮同样去 `/login`，不留在首页。
 
 已登录用户访问 `/` 时直接渲染同一份内容但套 `AppLayout`，登录卡换成「继续练习 / 我的记录」入口。未登录外壳是 `PublicShell`（极简页头：logo 回首页、帮助入口、主题切换），与帮助页共用。
 
@@ -245,10 +300,21 @@ GET  /api/meta
 
 ### 8.5 各角色页面
 
-- **学生**：试卷列表（只列已发布）/ 我的记录 / 答题页（题号导航、倒计时、自动保存、违规遮罩）/ 结果与逐题解析。
-- **教师**：题库列表 / 题目编辑 / Excel 导入 / 组卷（随机配额 + 手动选题）/ 试卷管理 / 成绩查看。
+- **学生**：试卷列表（只列已发布且在自己可见范围内，附带「还可答 N 次」）/ 我的记录 / 答题页（题号导航、倒计时、自动保存、暂停、标记、违规遮罩）/ 结果与逐题解析。
+- **教师**：题库列表（多选 + 批量改分类/删除）/ 题目编辑 / Excel 导入 / 组卷（随机配额 + 手动选题 + 发布时指定可见学生）/ 试卷管理 / 成绩查看。
 - **管理员**：用户管理 / 系统设置（数据库、SSO、考试默认参数）。
 - **提示信息**：所有表单字段带 `tooltip`，随机抽题、答题防作弊、密码规则等规则性内容用 `Alert` 常驻说明，列表空状态给下一步动作指引。
+
+### 8.6 v0.4 页面变化
+
+| 页面 | 变化 |
+|---|---|
+| `LoginPage` | 新增 `safeNext(raw)`：只接受 `/` 开头的站内相对路径，`//evil.com`、`http://…`、`javascript:` 一律落回 `/`（防开放重定向）。`next !== '/'` 时页面顶部提示「登录后将自动回到你刚才要去的页面」。原来的登录表单与其它交互完全保留。 |
+| `HomePage` | Hero 主按钮改 `navigate('/login')`；试卷卡的「开始答题」未登录时带上 `next=/papers?start=<id>`。 |
+| `QuestionsPage` | 加 `rowSelection`，勾选后从底部浮出 `.liti-batch-bar`（已选 N 项 / 目标分类 Select / 批量改分类 / 批量删除 / 取消）。单题删除按 `usedInPapers` 给两套文案：0 → 「确认删除？」，>0 → 「该题已被 N 份试卷引用，删除后题库中不再出现，但历史试卷仍可正常作答与查看」。 |
+| `PapersPage` | 新建/编辑弹窗的「发布」改成 `publishOpen` 独立弹窗：Radio「所有学生 / 指定学生」+ 学生多选（带全选/清空/搜索）。列表新增「可见范围」列；学生视角新增「作答次数」列（`还可答 N 次` / `次数已用完`）。用 `useSearchParams` 读 `?start=`，进页面自动开考并清掉该参数。`Table scroll={{ x: 980 }}` 防窄屏横向溢出。 |
+| `ExamPage` | 见 6.3.1 / 6.4 / 6.4.1。倒计时改为「服务端时钟 + 偏移量」；暂停时整页换成 `Result` 卡片；答题卡角标用 `.liti-sheet-flag`（白边黄点，绿底上也看得见）；违规遮罩改成带「我知道了，继续答题」按钮的 Modal，**返回标签页不会自动清掉**。 |
+| `HelpPage` | 快速开始的「未登录」说法改成跳转；题库段补批量操作与软删除 Alert；组卷段补「指定学生可见」「最多 3 次」；答题段补标记/暂停说明；FAQ 新增「删掉的题会影响老试卷吗」「一份卷能考几次」。 |
 
 ---
 
@@ -278,6 +344,7 @@ GET  /api/meta
 | M3 考试核心 | 组卷、乱序、计时、自动保存、防切屏、判分、双模式解析 | 全链路集成+E2E 通过 |
 | M4 收尾 | 成绩记录、部署文档、MySQL 实机冒烟、验收 | 全部门禁通过后提交 |
 | M5 门面与导览（v0.3） | 公开接口、首页免登录门面、试卷预览三入口、Excel 题型下拉与批注、站内帮助文档、全站提示信息 | 49 项验收脚本双库全绿 + 界面截图复查 |
+| M6 考试体验与控制（v0.4） | 登录跳转回跳、题库批量操作、题目软删除、3 次作答上限、暂停/继续、试卷可见范围、题目标记、切屏检测修复、镜像自建文档 | 84 项验收脚本双库全绿 + 20 项界面验收 + 8 张截图复查 |
 
 ---
 
@@ -302,3 +369,11 @@ GET  /api/meta
 | 15 | Excel 题型列下拉（v0.3） | 打开模板检查 A2:A1000 数据验证为 list |
 | 16 | 新建试卷可预览（v0.3） | 「预览卷面」不落库，试卷总数不变 |
 | 17 | 站内帮助文档（v0.3） | 未登录访问 `/help` 内容完整 |
+| 18 | 保留原登录页，未登录点登录/开始答题跳登录页（v0.4） | 点 Hero「登录」进 `/login`；点试卷卡「开始答题」带 `next` 跳登录，登录后自动回跳并开考；`next` 白名单挡住站外地址 |
+| 19 | 题目批量改分类 / 批量删除（v0.4） | 勾选多行浮出工具条；`POST /api/questions/batch` 逐条复核；空 ids 400、非教师 403 |
+| 20 | 删除题目不影响历史试卷（v0.4） | 软删除后题库消失，但已发布试卷的预览/作答/解析仍能取到该题全文；删后同题干可重建 |
+| 21 | 每份试卷最多答 3 次（v0.4） | 第 4 次 400；进行中答卷复用不占次数；`remaining_attempts` 递减 |
+| 22 | 考试暂停：停表 + 屏蔽题面（v0.4） | 暂停中 `saveAnswer` 被拒、违规不计数、`review` 返回 `masked` 且无题面；恢复后 deadline 顺延 |
+| 23 | 发布时指定可见 / 隐藏学生（v0.4） | `audience_mode=selected` + 名单；名单外 404（含公开列表与公开预览）；名单为空 400 |
+| 24 | 答题标记并在答题卡体现（v0.4） | `PATCH /:id/flag` 落库，答题卡题号右上角黄点，刷新后仍在 |
+| 25 | 修复切换窗口/标签页未记录（v0.4） | 三路监听 + 2s 去抖；CDP 实测切标签页记到违规，回来弹遮罩不自动消失 |
