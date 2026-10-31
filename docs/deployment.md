@@ -184,11 +184,14 @@ docker build -t liti:latest .
 
 ```bash
 docker run -d --name liti -p 8080:8080 \
-  -e SESSION_SECRET=请改成强随机串 \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -v liti-data:/app/data \
   --restart unless-stopped \
   liti:latest
 ```
+
+> `SESSION_SECRET` **至少 16 个字符**，不足会直接启动失败（日志打印 `配置错误`）。上面用
+> `openssl rand -hex 32` 现生成；手敲也请凑够 32 位，别写中文短句。
 
 `/app/data` 同时存 SQLite 文件与题目配图（`/app/data/uploads`），一个卷就够。
 
@@ -214,7 +217,7 @@ docker run -d --name liti-mysql --network liti-net \
 docker run -d --name liti --network liti-net -p 8080:8080 \
   -e DB_DRIVER=mysql \
   -e MYSQL_URL="mysql://root:root123@liti-mysql:3306/liti" \
-  -e SESSION_SECRET=请改成强随机串 \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -v liti-uploads:/app/data \
   liti:latest
 ```

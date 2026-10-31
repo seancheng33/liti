@@ -86,7 +86,7 @@ docker images liti
 ```bash
 docker run -d --name liti \
   -p 8080:8080 \
-  -e SESSION_SECRET='换成你自己的随机串，至少16位' \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -v liti-data:/app/data \
   --restart unless-stopped \
   liti:latest
@@ -97,7 +97,7 @@ docker run -d --name liti \
 | 参数 | 作用 |
 |---|---|
 | `-p 8080:8080` | 宿主机 8080 → 容器 8080 |
-| `-e SESSION_SECRET` | 会话签名密钥，**必须改**，至少 16 个字符，否则用默认值有风险 |
+| `-e SESSION_SECRET` | 会话签名密钥，**至少 16 个字符**（不足会直接启动失败）。上面的 `$(openssl rand -hex 32)` 会生成 64 位随机串；本机没有 openssl 就随便敲 32 个字符，**别照抄中文占位符** |
 | `-v liti-data:/app/data` | 数据卷。SQLite 文件（`/app/data/app.db`）和题目配图（`/app/data/uploads`）都在这里 |
 | `--restart unless-stopped` | 开机/异常退出自动拉起 |
 
@@ -141,7 +141,8 @@ services:
     ports:
       - '8080:8080'
     environment:
-      SESSION_SECRET: '换成你自己的随机串，至少16位'
+      # 至少 16 个字符，不足会启动失败。用 `openssl rand -hex 32` 生成后粘进来。
+      SESSION_SECRET: 'liti-demo-secret-0123456789abcdef'
       TZ: Asia/Shanghai
     volumes:
       - liti-data:/app/data
@@ -210,7 +211,7 @@ docker run -d --name liti \
   -p 8080:8080 \
   -e DB_DRIVER=mysql \
   -e MYSQL_URL='mysql://root:root-强密码@liti-mysql:3306/liti' \
-  -e SESSION_SECRET='换成你自己的随机串，至少16位' \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" \
   -v liti-uploads:/app/data \
   --restart unless-stopped \
   liti:latest
@@ -260,7 +261,7 @@ services:
     environment:
       DB_DRIVER: mysql
       MYSQL_URL: 'mysql://root:root-强密码@mysql:3306/liti'
-      SESSION_SECRET: '换成你自己的随机串，至少16位'
+      SESSION_SECRET: 'liti-demo-secret-0123456789abcdef'
     volumes:
       - liti-uploads:/app/data
     restart: unless-stopped
@@ -384,7 +385,8 @@ docker exec -i liti-mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" liti
 
 | 现象 | 原因与处理 |
 |---|---|
-| 容器起来几秒就退出 | `docker logs liti` 看报错。多半是 `SESSION_SECRET` 少于 16 位，或 `MYSQL_URL` 连不上 |
+| 容器**不断重启**（几秒一次） | 配了 `--restart` / `restart: unless-stopped` 时，启动失败会被无限重拉，看起来像「一直重启」。真实原因只在第一次的日志里：`docker logs <容器> \| head -5`。排错时先去掉 `--restart` 前台跑一次，栈直接打在屏幕上 |
+| 容器起来几秒就退出 | `docker logs liti` 看报错。最常见是 `SESSION_SECRET` 少于 16 位（日志会打印 `配置错误: ... SESSION_SECRET`）；其次是 `MYSQL_URL` 连不上、宿主端口被占（`EADDRINUSE`） |
 | 页面 502 / 打不开 | `docker ps` 看容器是否 Up；`curl 127.0.0.1:8080/api/health` 从宿主机测 |
 | 登录后立刻掉线 | 多个实例用了不同 `SESSION_SECRET`，或没挂卷导致重启后会话表丢失 |
 | MySQL 报 `ECONNREFUSED` | 用了 `127.0.0.1` 而不是容器名；或 MySQL 还没初始化完就起应用 |
