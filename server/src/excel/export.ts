@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { Db } from '../db/index.js';
+import { TEMPLATE_HEADERS } from './template.js';
 
 const STATUS_LABEL: Record<string, string> = { in_progress: '进行中', submitted: '已交卷', expired: '已超时' };
 export const REASON_LABEL: Record<string, string> = {
@@ -70,4 +71,151 @@ export async function exportAttemptsXlsx(db: Db): Promise<Buffer> {
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
+}
+
+/* ============================================================
+ * 题库导出
+ * ============================================================ */
+
+export interface ExportQuestionsFilter {
+  keyword?: string;
+  categoryId?: number | null;
+  type?: string;
+  /** active=在用（默认）；archived=已删除；all=全部 */
+  status?: 'active' | 'archived' | 'all';
+}
+
+const MAX_EXPORT_ROWS = 5000;
+const LETTERS = 'ABCDEF';
+
+/**
+ * 导出题库为 xlsx。
+ *
+ * **列结构刻意和「导入模板」一模一样（12 列）**，这样「导出 → 在 Excel 里改 → 导回去」
+ * 是闭环的，不用手工对字段。代价是配图不在表格里（模板本来就没有图片列），
+ * 所以第二张表里会写清楚这件事，免得以为导出是完整备份。
+ */
+export async function exportQuestionsXlsx(
+  db: Db,
+  filter: ExportQuestionsFilter,
+): Promise<{ buffer: Buffer; count: number; truncated: boolean }> {
+  let q = db.selectFrom('question');
+  if (filter.keyword) q = q.where('stem', 'like', `%${filter.keyword}%`);
+  if (filter.categoryId != null) q = q.where('category_id', '=', filter.categoryId);
+  if (filter.type === 'single' || filter.type === 'multiple') q = q.where('type', '=', filter.type);
+  if (filter.status !== 'all') {
+    q = q.where('status', '=', (filter.status ?? 'active') as 'active' | 'archived');
+  }
+
+  const totalRow = await q.select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow();
+  const total = Number(totalRow.c);
+
+  const rows = await q
+    .selectAll()
+    .orderBy('id', 'asc')
+    .limit(MAX_EXPORT_ROWS)
+    .execute();
+
+  const ids = rows.map((r) => r.id);
+  const options = ids.length
+    ? await db
+        .selectFrom('question_option')
+        .select(['question_id', 'content', 'is_correct', 'sort_order'])
+        .where('question_id', 'in', ids)
+        .orderBy('sort_order', 'asc')
+        .execute()
+    : [];
+  const optionMap = new Map<number, typeof options>();
+  for (const o of options) {
+    const list = optionMap.get(o.question_id) ?? [];
+    list.push(o);
+    optionMap.set(o.question_id, list);
+  }
+
+  const catIds = [...new Set(rows.map((r) => r.category_id).filter((v): v is number => v != null))];
+  const cats = catIds.length
+    ? await db.selectFrom('category').select(['id', 'name']).where('id', 'in', catIds).execute()
+    : [];
+  const catMap = new Map(cats.map((c) => [c.id, c.name]));
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '砺题 Liti';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('题目', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = TEMPLATE_HEADERS.map((h) => ({
+    header: h,
+    key: h,
+    width: h === '题干' || h === '解析' ? 40 : h === '正确答案' ? 12 : 20,
+  }));
+  const headerRow = ws.getRow(1);
+  headerRow.font = { bold: true, size: 11 };
+  headerRow.height = 22;
+  headerRow.eachCell((cell) => {
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF3FF' } };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFBFD7F5' } } };
+  });
+
+  for (const r of rows) {
+    const opts = optionMap.get(r.id) ?? [];
+    const answer = opts
+      .map((o, i) => (o.is_correct === 1 ? LETTERS[i] ?? '' : ''))
+      .join('');
+    let tags: string[] = [];
+    if (r.tags) {
+      try {
+        const parsed = JSON.parse(r.tags);
+        if (Array.isArray(parsed)) tags = parsed.map((t) => String(t));
+      } catch {
+        tags = String(r.tags).split(',');
+      }
+    }
+
+    const record: Record<string, string> = {
+      题型: r.type === 'multiple' ? '多选' : '单选',
+      题干: r.stem,
+      正确答案: answer,
+      解析: r.explanation ?? '',
+      分类: r.category_id != null ? (catMap.get(r.category_id) ?? '') : '',
+      标签: tags.join(','),
+    };
+    for (let i = 0; i < 6; i++) record[`选项${LETTERS[i]}`] = opts[i]?.content ?? '';
+
+    ws.addRow(record);
+  }
+
+  // 第二张表：把「这次导出的是什么」写清楚，避免拿着导出文件当完整备份
+  const help = wb.addWorksheet('导出信息');
+  help.columns = [
+    { key: 'k', width: 16 },
+    { key: 'v', width: 72 },
+  ];
+  help.getRow(1).values = ['项目', '说明'];
+  help.getRow(1).font = { bold: true };
+
+  // 筛选用的分类名单独查一次（导出的行里可能没有这个分类的题）
+  let filterCatName: string | null = null;
+  if (filter.categoryId != null) {
+    const c = await db.selectFrom('category').select('name').where('id', '=', filter.categoryId).executeTakeFirst();
+    filterCatName = c?.name ?? null;
+  }
+  const conditions = [
+    filter.keyword ? `题干包含「${filter.keyword}」` : '不限题干',
+    filter.categoryId != null ? `分类：${filterCatName ?? filter.categoryId}` : '全部分类',
+    filter.type ? `题型：${filter.type === 'multiple' ? '多选' : '单选'}` : '全部题型',
+    filter.status === 'archived' ? '仅已删除题目' : filter.status === 'all' ? '在用 + 已删除' : '仅在用题目',
+  ];
+  help.addRow({ k: '导出时间', v: fmt(Date.now()) });
+  help.addRow({ k: '题目数量', v: String(rows.length) });
+  help.addRow({ k: '筛选条件', v: conditions.join('；') });
+  help.addRow({});
+  help.addRow({ k: '怎么用', v: '这张表和「下载模板」的结构完全一致：改完可以直接用「Excel 导入」导回去。' });
+  help.addRow({ k: '注意', v: '题目配图不在表格里（模板没有图片列）。导出不会删除任何题目，导入时按题干查重。' });
+  if (total > rows.length) {
+    help.addRow({ k: '注意', v: `本次共命中 ${total} 道题，只导出了前 ${rows.length} 道；请加筛选条件分批导出。` });
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return { buffer: Buffer.from(buf), count: rows.length, truncated: total > rows.length };
 }

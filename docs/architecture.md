@@ -88,15 +88,20 @@
 | `category` | id, name, parent_id, sort |
 | `question` | id, type(single/multiple), stem, images(JSON), explanation, category_id, tags(JSON), status(active/archived), content_hash, created_by, created_at, updated_at |
 | `question_option` | id, question_id, content, images(JSON), is_correct, sort_order |
-| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, **audience_mode(all/selected)**, created_by |
+| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, **practice_source(random/wrong)**, **audience_mode(all/selected)**, created_by |
 | `paper_item` | id, paper_id, question_id, order_no, score |
-| `paper_audience` | id, paper_id, user_id, created_at —— 可见白名单（`audience_mode=selected` 时生效） |
+| `paper_audience` | id, paper_id, user_id, created_at —— 可见白名单（点名到人） |
+| `paper_audience_group` | id, paper_id, group_id, created_at —— 可见白名单（挂整个分组） |
+| `student_group` | id, name(唯一), remark, created_by, created_at, updated_at |
+| `student_group_member` | id, group_id, user_id, created_at |
 | `attempt` | id, paper_id, user_id, started_at, deadline_at, submitted_at, status, score, correct_count, submit_reason, **paused_at**, **paused_total_ms** |
 | `attempt_item` | id, attempt_id, question_id, order_no, option_order(JSON), selected(JSON), is_correct, score, **flagged**, answered_at |
 | `attempt_violation` | id, attempt_id, type, occurred_at, meta |
+| `wrong_question` | id, user_id, question_id, wrong_count, first_wrong_at, last_wrong_at, last_attempt_id, resolved_at, created_at, updated_at —— **每人一份，(user_id, question_id) 唯一** |
 | `import_batch` | id, filename, total, success, failed, errors(JSON), created_by, created_at |
 
-> 加粗字段是 v0.4 新增（迁移 `0008_exam_enhance`）。
+> v0.4 新增字段：`attempt.paused_at` / `paused_total_ms`、`attempt_item.flagged`、`paper.audience_mode` + `paper_audience`（迁移 `0008_exam_enhance`）。
+> v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
 
 **可移植性约定（SQLite / MySQL 双库关键）**
 
@@ -175,11 +180,57 @@
   统计与公开概览只算 `active`。
 - 删除接口返回 `usedInPapers`，前端据此提示「这题还在 N 份试卷里，那些试卷照常能看能考」。
 
+### 6.4.5 错题库（v0.5）
+
+- 一张表 `wrong_question`，**(user_id, question_id) 唯一**。所有接口只操作「当前登录用户」自己的数据，
+  没有 `userId` 入参 —— 从接口形状上就杜绝了读别人错题本的可能。
+- 写入时机只有一处：`gradeAttempt()` 判完分之后逐题写。所以错题必然来自**已交卷**的答卷，
+  不会把考生还没考的题的答案提前暴露出去。
+  - 答错（含空着没答）→ `wrong_count + 1`、`last_wrong_at`、`resolved_at` 置空
+  - 答对 → `resolved_at = now`（"已订正"，记录保留，不删行）
+- 列表默认只查 `resolved_at is null`；`?status=resolved|all` 可以看历史。
+  查询用 `inner join question`（不要求 `status='active'`）：题目在题库里被删了，错题本照样要能复习。
+- 错题详情返回选项、正确答案与解析：这是学生自己做错过的题，属学习用途；
+  且这些题一定出现在**已交卷**的答卷里，不构成泄题。
+- 错题练习抽题时额外要求 `question.status='active'` —— 归档题抽进练习卷没有意义。
+
+### 6.4.6 自助练习卷（v0.5）
+
+- `POST /api/attempts/practice` 的 `source` 决定题从哪来：
+  - `random`（默认）：按分类规则随机抽，题量平均分配到所选分类（前端拆 `rules`）
+  - `wrong`：从本人错题库抽 `count` 道未订正的题；不够时返回 400 并说明「只有 N 道」
+- 练习卷落在 `paper` 表里（`practice=1`，`practice_source` 记来源），`review_mode='immediate'`、
+  `status='draft'`（不进试卷列表）、不受 3 次上限约束。
+- 站点设置 `practice_enabled=false` 时**服务端直接 403**，不只是前端藏按钮。
+- 错题练习的题量默认值取 `min(10, 待订正数)` —— 否则默认 10、库存 3 时会一点就报错。
+
+### 6.4.7 学生分组与分组可见（v0.5）
+
+- `student_group` + `student_group_member`；只有 `role='student'` 的账号能进组（服务端校验）。
+- 试卷挂的是 **`paper_audience_group.group_id`（分组引用）而不是展开后的学生名单**。
+  所以往组里加人之后，之前发布的卷子他立刻也能看到；移出组立刻看不到。
+  这是「名单快照」方案做不到的，也是分组的价值所在。
+- 判定逻辑：`audience_mode='all'` → 全可见；`selected` → **点名（`paper_audience`）∪ 所在分组**，
+  两者取并集，可以只挂分组、只点名，或两者混用。
+- 过滤点与学生名下一致（列表、开考、公开列表、公开预览），名单外一律 404。
+- 删除分组时同时删 `paper_audience_group` 里的引用，避免试卷指向不存在的组。
+
 ### 6.5 Excel 导入
 
 - 模板列（12 列）：题型(单选/多选)、题干、选项A–D（预留到 F）、正确答案（`A` 或 `ACD`）、解析、分类、标签。
 - 流程：下载模板 → 上传 → **预校验**（必填、答案字母合法、单选唯一答案、多选 ≥2、空选项、题干重复）→ 错误行报告 → 确认后事务导入。
 - 支持「跳过错误行导入」与「全量回滚」两种模式；导入留批次记录，可追溯。
+
+### 6.5.1 题库导出（v0.5）
+
+- `GET /api/questions/export?keyword=&categoryId=&type=&status=` 导出 xlsx，**列结构与导入模板完全一致（12 列）**。
+  这是刻意的：导出 → 在 Excel 里改 → 再导入，是闭环的，不需要手工对字段。
+- 正确答案列按「非空选项的出现顺序」换算成字母（A、B…），与导入侧 `parseQuestionRows` 的算法一致，
+  否则一来一回答案就错位了。
+- 导出的表格**不含配图**（模板本来没有图片列），第二张「导出信息」工作表里写明了这一点，
+  免得有人把它当完整备份。
+- 单次最多 5000 行，超了在说明表里提示用筛选条件分批导出。
+- 只有 admin/teacher 能导出；筛选条件与题库列表共用同一套参数。
 
 ### 6.6 双数据库
 
@@ -217,22 +268,37 @@ GET/PUT/DELETE /api/questions/:id            # DELETE = 软删除（status→arc
 POST         /api/questions/batch            # { ids, action: 'delete' | 'category', categoryId? }
 POST         /api/questions/import           # dryRun=true 预校验
 GET          /api/questions/template         # xlsx，题型列为下拉
+GET          /api/questions/export           # xlsx，列结构与模板一致（导出→改→导入 闭环）
+
+# 学生分组
+GET/POST     /api/groups
+PUT/DELETE   /api/groups/:id
+GET          /api/groups/:id/members
+PUT          /api/groups/:id/members         # { userIds } 覆盖式设置，只收学生
+
+# 错题库（只操作当前登录用户自己的）
+GET          /api/wrong-questions            # ?status=active|resolved|all&categoryId=&keyword=
+GET          /api/wrong-questions/summary    # 待订正总数 + 按分类分布 + 最弱分类
+GET          /api/wrong-questions/:questionId # 详情：选项、正确答案、解析、错误次数
+DELETE       /api/wrong-questions/:questionId
+POST         /api/wrong-questions/batch-remove
 
 # 试卷
 GET/POST     /api/papers                     # 列表：学生只拿到已发布 + 自己可见的
 GET/PUT/DELETE /api/papers/:id
 POST         /api/papers/:id/publish         # body 可带 { audienceMode, audienceUserIds }
-GET          /api/papers/:id/audience        # 可见名单
-PUT          /api/papers/:id/audience        # 发布后改可见范围
+GET          /api/papers/:id/audience        # 可见名单（学生 + 分组）
+PUT          /api/papers/:id/audience        # { audienceMode, audienceUserIds, audienceGroupIds }
 POST         /api/papers/random-preview      # 抽样题号预览（不落库）
 POST         /api/papers/draft-preview       # 新建时按表单入参预览整卷（不落库）
 GET          /api/papers/:id/preview         # 已存在试卷预览（草稿也可，需教师/管理员）
 
-# 学生名册（发布挑人；只给 id/用户名/显示名）
+# 学生名册（发布挑人 / 建组挑人；只给 id/用户名/显示名）
 GET          /api/users/students
 
 # 答题
 POST         /api/attempts                   # 开考（复用进行中答卷；超出 3 次报 400）
+POST         /api/attempts/practice          # 自助练习：source=random|wrong（错题练习走 wrong）
 PATCH        /api/attempts/:id/answers       # 自动保存
 PATCH        /api/attempts/:id/flag          # 题目标记
 POST         /api/attempts/:id/pause         # 暂停：停表 + 服务端屏蔽题面
@@ -261,12 +327,16 @@ GET  /api/meta
 /help        帮助文档      公开
 ──────────── 以下挂在 RequireAuth + AppLayout 布局路由下 ────────────
 /papers      试卷列表 / 组卷
+/practice    练习中心      v0.5（随机练习 + 错题练习 + 最近错题）
+/wrong       我的错题本    v0.5
 /questions   题库
+/categories  分类管理
+/groups      学生分组      v0.5（admin/teacher）
 /exam/:id    答题页
 /attempts    我的记录
 /review/:id  结果与逐题解析
 /stats       统计
-/users       用户管理     admin
+/users       用户管理     admin 全部；teacher 只看学生
 /settings    系统设置     admin
 ```
 
@@ -316,6 +386,19 @@ GET  /api/meta
 | `ExamPage` | 见 6.3.1 / 6.4 / 6.4.1。倒计时改为「服务端时钟 + 偏移量」；暂停时整页换成 `Result` 卡片；答题卡角标用 `.liti-sheet-flag`（白边黄点，绿底上也看得见）；违规遮罩改成带「我知道了，继续答题」按钮的 Modal，**返回标签页不会自动清掉**。 |
 | `HelpPage` | 快速开始的「未登录」说法改成跳转；题库段补批量操作与软删除 Alert；组卷段补「指定学生可见」「最多 3 次」；答题段补标记/暂停说明；FAQ 新增「删掉的题会影响老试卷吗」「一份卷能考几次」。 |
 
+### 8.7 v0.5 页面变化
+
+| 页面 | 说明 |
+|---|---|
+| `PracticePage`（新增，`/practice`） | 练习中心。顶部三张统计卡（待订正错题 / 最需要补的分类 / 错题分类分布）；下面并排两张卡：随机练习（分类多选 + 题量 + 时长，多分类按题量平均分，实时提示「每个分类抽几题」）与错题练习（题量默认 `min(10, 待订正数)`，可限定某个分类的错题，带「全选错题」快捷按钮）；底部「最近错题」5 条，点进错题本。 |
+| `WrongQuestionsPage`（新增，`/wrong`） | 我的错题本。状态 Tab（待订正 / 已订正 / 全部）+ 分类筛选 + 题干搜索；表格列出题干摘要、错误次数、分类、最近答错时间；勾选可批量移除；「查看」弹详情（选项标出正确答案 + 解析）；右上角「用错题练一遍」直接生成错题练习卷。 |
+| `GroupsPage`（新增，`/groups`） | 学生分组（admin/teacher）。表格列出分组名、说明、人数、创建时间；「管成员」弹窗多选学生（全选/清空/已选计数）；删组有二次确认并提醒「只对这个组可见的卷子会没人能看到」。 |
+| `PapersPage` | 发布弹窗改「指定学生 / 分组」：先选分组（显示每组人数），再点名个别学生，两者取并集；列表「可见范围」列显示「N 人 / M 组」。页头「随机练习」按钮改成跳「练习中心」。 |
+| `UsersPage` | 教师进入时标题为「学生管理」、只列学生、隐藏角色单选（只能建学生）、编辑时不提交角色；列表新增「分组」列显示该学生所在分组。 |
+| `QuestionsPage` | 新增「导出」按钮，href 带上当前筛选（关键词/分类/题型），所见即所得。 |
+| `AppLayout` | 菜单新增「练习中心」「错题本」（所有角色）、「学生分组」（admin/teacher）；「用户管理」对教师显示为「学生管理」。 |
+| `HelpPage` | 新增「练习中心与错题本」「学生分组与账号」两章；角色表与发布说明同步更新；FAQ 新增「错题是怎么进来的」「分组和指定学生的区别」「导出的表格能改完再导回去吗」。 |
+
 ---
 
 ## 9. 测试策略与门禁
@@ -345,6 +428,7 @@ GET  /api/meta
 | M4 收尾 | 成绩记录、部署文档、MySQL 实机冒烟、验收 | 全部门禁通过后提交 |
 | M5 门面与导览（v0.3） | 公开接口、首页免登录门面、试卷预览三入口、Excel 题型下拉与批注、站内帮助文档、全站提示信息 | 49 项验收脚本双库全绿 + 界面截图复查 |
 | M6 考试体验与控制（v0.4） | 登录跳转回跳、题库批量操作、题目软删除、3 次作答上限、暂停/继续、试卷可见范围、题目标记、切屏检测修复、镜像自建文档 | 84 项验收脚本双库全绿 + 20 项界面验收 + 8 张截图复查 |
+| M7 练习与组织（v0.5） | 练习中心（随机 + 错题）、独立错题库、错题练习卷、学生分组、分组可见范围、教师管理学生、题库导出 | 105 项验收脚本双库全绿 + 28 项界面验收 + 9 张截图复查 |
 
 ---
 
@@ -377,3 +461,9 @@ GET  /api/meta
 | 23 | 发布时指定可见 / 隐藏学生（v0.4） | `audience_mode=selected` + 名单；名单外 404（含公开列表与公开预览）；名单为空 400 |
 | 24 | 答题标记并在答题卡体现（v0.4） | `PATCH /:id/flag` 落库，答题卡题号右上角黄点，刷新后仍在 |
 | 25 | 修复切换窗口/标签页未记录（v0.4） | 三路监听 + 2s 去抖；CDP 实测切标签页记到违规，回来弹遮罩不自动消失 |
+| 26 | 学生自己生成随机练习卷（v0.5） | `/practice` 页选分类与题量 → `POST /api/attempts/practice` → 直接开考；练习卷不进试卷列表、不受 3 次限制 |
+| 27 | 每人独立的错题库（v0.5） | 判分时写 `wrong_question`，接口无 `userId` 入参；学生B 读不到也删不掉学生A 的错题 |
+| 28 | 按错题库生成练习卷（v0.5） | `source=wrong` 从本人未订正错题抽题；不够时明确提示；答对即移出待订正 |
+| 29 | 学生分组（v0.5） | `/api/groups` + `student_group_member`；发布弹窗可选分组，分组加人立即生效 |
+| 30 | 教师可添加/管理学生（v0.5） | 教师只能看/建/改/删学生，不能提权、不能碰 admin/teacher、不能删自己 |
+| 31 | 题库导出（v0.5） | `GET /api/questions/export`，12 列与导入模板一致；实测导出文件回导后全部命中「已有题目」 |

@@ -7,6 +7,9 @@ import HelpPage from './pages/HelpPage';
 import QuestionsPage from './pages/QuestionsPage';
 import CategoriesPage from './pages/CategoriesPage';
 import PapersPage from './pages/PapersPage';
+import PracticePage from './pages/PracticePage';
+import WrongQuestionsPage from './pages/WrongQuestionsPage';
+import GroupsPage from './pages/GroupsPage';
 import ExamPage from './pages/ExamPage';
 import ReviewPage from './pages/ReviewPage';
 import MyAttemptsPage from './pages/MyAttemptsPage';
@@ -48,6 +51,9 @@ export default function App() {
             }
           >
             <Route path="/papers" element={<PapersPage />} />
+            <Route path="/practice" element={<PracticePage />} />
+            <Route path="/wrong" element={<WrongQuestionsPage />} />
+            <Route path="/groups" element={<GroupsPage />} />
             <Route path="/questions" element={<QuestionsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/attempts" element={<MyAttemptsPage />} />

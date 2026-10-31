@@ -23,11 +23,13 @@ const paperSchema = z.object({
   questionIds: z.array(z.number().int()).optional(),
   audienceMode: z.enum(['all', 'selected']).optional(),
   audienceUserIds: z.array(z.number().int()).optional(),
+  audienceGroupIds: z.array(z.number().int()).optional(),
 });
 
 const audienceSchema = z.object({
   audienceMode: z.enum(['all', 'selected']),
   audienceUserIds: z.array(z.number().int()).optional(),
+  audienceGroupIds: z.array(z.number().int()).optional(),
 });
 
 export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -115,7 +117,13 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     const body = audienceSchema.parse(request.body);
-    return service.setPaperAudience(db, Number(id), body.audienceMode, body.audienceUserIds ?? []);
+    return service.setPaperAudience(
+      db,
+      Number(id),
+      body.audienceMode,
+      body.audienceUserIds ?? [],
+      body.audienceGroupIds ?? [],
+    );
   });
 
   app.post('/:id/publish', async (request) => {
@@ -127,7 +135,13 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     if (raw && typeof raw === 'object') {
       const parsed = audienceSchema.partial().safeParse(raw);
       if (parsed.success && parsed.data.audienceMode) {
-        await service.setPaperAudience(db, Number(id), parsed.data.audienceMode, parsed.data.audienceUserIds ?? []);
+        await service.setPaperAudience(
+          db,
+          Number(id),
+          parsed.data.audienceMode,
+          parsed.data.audienceUserIds ?? [],
+          parsed.data.audienceGroupIds ?? [],
+        );
       }
     }
     await service.setPaperStatus(db, Number(id), 'published');

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message } from 'antd';
+import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -16,10 +16,13 @@ interface UserRow {
   status: string;
   provider: string;
   created_at: number;
+  /** 所在分组（学生才有） */
+  groups?: string[];
 }
 
 export default function UsersPage() {
   const { user: me } = useAuth();
+  const isAdmin = me?.role === 'admin';
   const [data, setData] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -47,7 +50,8 @@ export default function UsersPage() {
   async function onCreate() {
     const values = await createForm.validateFields();
     try {
-      await api.post('/api/users', values);
+      // 教师视图里角色字段是隐藏的，这里显式补成 student（服务端也会拦非法角色）
+      await api.post('/api/users', { ...values, role: isAdmin ? values.role : 'student' });
       message.success('已创建用户');
       setCreateOpen(false);
       createForm.resetFields();
@@ -60,7 +64,9 @@ export default function UsersPage() {
   async function onEdit() {
     const values = await editForm.validateFields();
     try {
-      await api.put(`/api/users/${editTarget!.id}`, values);
+      // 教师不能改角色，只提交显示名与状态
+      const body = isAdmin ? values : { displayName: values.displayName, status: values.status };
+      await api.put(`/api/users/${editTarget!.id}`, body);
       message.success('已保存');
       setEditTarget(null);
       load();
@@ -114,6 +120,23 @@ export default function UsersPage() {
       render: (p: string) => (p === 'local' ? '本地' : 'SSO'),
     },
     {
+      title: '分组',
+      dataIndex: 'groups',
+      width: 190,
+      render: (groups: string[] | undefined) =>
+        groups?.length ? (
+          <Space size={4} wrap>
+            {groups.map((g) => (
+              <Tag key={g} color="blue" style={{ marginInlineEnd: 0 }}>
+                {g}
+              </Tag>
+            ))}
+          </Space>
+        ) : (
+          <span className="liti-muted">{me?.role === 'teacher' ? '未分组' : '-'}</span>
+        ),
+    },
+    {
       title: '创建时间',
       dataIndex: 'created_at',
       width: 170,
@@ -152,8 +175,12 @@ export default function UsersPage() {
   return (
     <div className="liti-page">
       <PageHeader
-        title="用户管理"
-        description="创建账号、调整角色、重置密码。删除用户会一并清理其答卷数据。"
+        title={isAdmin ? '用户管理' : '学生管理'}
+        description={
+          isAdmin
+            ? '创建账号、调整角色、重置密码。删除用户会一并清理其答卷、错题库与分组归属。'
+            : '你在这里可以创建学生账号、改显示名、重置密码、停用或删除学生。教师与管理员的账号只有管理员能改。'
+        }
         extra={
           <Button
             icon={<PlusOutlined />}
@@ -164,10 +191,20 @@ export default function UsersPage() {
               createForm.setFieldsValue({ role: 'student' });
             }}
           >
-            新建用户
+            {isAdmin ? '新建用户' : '新建学生'}
           </Button>
         }
       />
+
+      {!isAdmin && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="教师账号只能管理学生"
+          description="要按班发卷，可以到「学生分组」把人分好；这里建完学生后直接去分组里勾选即可。"
+        />
+      )}
 
       <Card styles={{ body: { padding: 0 } }}>
         <Table
@@ -202,13 +239,28 @@ export default function UsersPage() {
           >
             <Input.Password />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]} tooltip="学生只能答题；教师可管题库和试卷；管理员还能管用户和站点配置">
+          <Form.Item
+            name="role"
+            label="角色"
+            rules={[{ required: true }]}
+            tooltip={
+              isAdmin
+                ? '学生只能答题；教师可管题库、试卷、分组和学生；管理员还能管账号与站点配置'
+                : '教师只能创建学生账号'
+            }
+            hidden={!isAdmin}
+          >
             <Radio.Group>
               <Radio value="student">学生</Radio>
               <Radio value="teacher">教师</Radio>
               <Radio value="admin">管理员</Radio>
             </Radio.Group>
           </Form.Item>
+          {!isAdmin && (
+            <Form.Item label="角色" tooltip="教师只能创建学生账号">
+              <Input value="学生" disabled />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
 
@@ -218,7 +270,7 @@ export default function UsersPage() {
           <Form.Item name="displayName" label="显示名" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+          <Form.Item name="role" label="角色" rules={[{ required: true }]} hidden={!isAdmin}>
             <Select
               options={[
                 { value: 'student', label: '学生' },
@@ -227,6 +279,11 @@ export default function UsersPage() {
               ]}
             />
           </Form.Item>
+          {!isAdmin && (
+            <Form.Item label="角色" tooltip="教师不能修改账号角色">
+              <Input value="学生" disabled />
+            </Form.Item>
+          )}
           <Form.Item name="status" label="状态">
             <Radio.Group>
               <Radio value="active">正常</Radio>

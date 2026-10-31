@@ -56,8 +56,13 @@ export interface Paper {
   status: 'draft' | 'published' | 'archived';
   audience_mode?: 'all' | 'selected';
   audience_user_ids?: number[];
+  audience_group_ids?: number[];
   /** 指定可见的学生人数（列表用） */
   audience_count?: number;
+  /** 指定可见的分组数（列表用） */
+  audience_group_count?: number;
+  /** 练习卷来源：random / wrong；普通试卷为 null */
+  practice_source?: 'random' | 'wrong' | null;
   random_config?: PaperRule[] | null;
   /** 学生视角：已作答次数 / 剩余次数（教师/管理员看不到这两项） */
   attempt_count?: number;
@@ -240,4 +245,59 @@ export const PAPER_STATUS_LABEL: Record<string, string> = {
 export const AUDIENCE_LABEL: Record<string, string> = {
   all: '所有学生',
   selected: '指定学生',
+};
+
+/* ---------- 错题库（v0.5） ---------- */
+
+export interface WrongQuestion {
+  id: number;
+  questionId: number;
+  type: 'single' | 'multiple';
+  stem: string;
+  images: string[];
+  categoryId: number | null;
+  categoryName: string | null;
+  wrongCount: number;
+  firstWrongAt: number;
+  lastWrongAt: number;
+  resolved: boolean;
+  resolvedAt: number | null;
+}
+
+export interface WrongQuestionDetail {
+  questionId: number;
+  type: 'single' | 'multiple';
+  stem: string;
+  images: string[];
+  explanation: string | null;
+  categoryId: number | null;
+  categoryName: string | null;
+  status: string;
+  wrongCount: number;
+  firstWrongAt: number;
+  lastWrongAt: number;
+  resolved: boolean;
+  options: { id: number; content: string; images: string[]; isCorrect: boolean }[];
+}
+
+export interface WrongSummary {
+  activeTotal: number;
+  byCategory: { categoryId: number | null; categoryName: string; count: number }[];
+  weakest: { categoryId: number | null; categoryName: string; count: number } | null;
+}
+
+/* ---------- 学生分组（v0.5） ---------- */
+
+export interface StudentGroup {
+  id: number;
+  name: string;
+  remark: string | null;
+  memberCount: number;
+  createdAt: number;
+}
+
+/** 练习卷来源 */
+export const PRACTICE_SOURCE_LABEL: Record<string, string> = {
+  random: '随机练习',
+  wrong: '错题练习',
 };

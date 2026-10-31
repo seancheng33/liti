@@ -17,7 +17,7 @@ import {
   Upload,
   message,
 } from 'antd';
-import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ExportOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { api, uploadXlsx, ApiError } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
@@ -72,6 +72,16 @@ export default function QuestionsPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [batchCategory, setBatchCategory] = useState<number | undefined>(undefined);
   const [batchLoading, setBatchLoading] = useState(false);
+
+  /** 导出带上当前筛选条件，所见即所得 */
+  const exportUrl = (() => {
+    const qs = new URLSearchParams();
+    if (keyword.trim()) qs.set('keyword', keyword.trim());
+    if (filterCategory != null) qs.set('categoryId', String(filterCategory));
+    if (filterType) qs.set('type', filterType);
+    const s = qs.toString();
+    return `/api/questions/export${s ? `?${s}` : ''}`;
+  })();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -367,6 +377,11 @@ export default function QuestionsPage() {
               <Tooltip title="下载模板：题型列是下拉菜单，表头有填写说明">
                 <Button icon={<DownloadOutlined />} href="/api/questions/template">
                   模板
+                </Button>
+              </Tooltip>
+              <Tooltip title="按当前筛选条件导出为 Excel，列结构和导入模板一致，改完可以直接导回来">
+                <Button icon={<ExportOutlined />} href={exportUrl}>
+                  导出
                 </Button>
               </Tooltip>
               <Tooltip title="题干和选项都可以配图；只放图片的题目可以不写题干">

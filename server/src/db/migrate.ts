@@ -7,6 +7,7 @@ import * as migration0005 from '../migrations/0005_settings.js';
 import * as migration0006 from '../migrations/0006_user_prefs.js';
 import * as migration0007 from '../migrations/0007_question_media.js';
 import * as migration0008 from '../migrations/0008_exam_enhance.js';
+import * as migration0009 from '../migrations/0009_practice_wrong_group.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
@@ -17,6 +18,7 @@ const migrations: Record<string, Migration> = {
   '0006_user_prefs': migration0006,
   '0007_question_media': migration0007,
   '0008_exam_enhance': migration0008,
+  '0009_practice_wrong_group': migration0009,
 };
 
 const provider: MigrationProvider = {

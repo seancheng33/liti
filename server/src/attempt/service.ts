@@ -5,6 +5,7 @@ import { HttpError } from '../http-error.js';
 import { parseImageList } from '../media.js';
 import { MAX_ATTEMPTS_PER_PAPER, paperVisibleTo, sampleQuestionIds, type SampleRule } from '../paper/service.js';
 import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
+import { recordCorrect, recordWrong, sampleWrongQuestionIds } from '../wrong/service.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
@@ -115,12 +116,44 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
   });
 }
 
-export async function startPractice(db: Db, userId: number, rules: SampleRule[], durationSec: number): Promise<number> {
-  const total = rules.reduce((s, r) => s + r.count, 0);
-  if (total < 1 || total > MAX_PAPER_QUESTIONS) {
-    throw new HttpError(400, `题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
+export interface PracticeOptions {
+  /** random=按分类随机抽（默认）；wrong=从本人错题库抽 */
+  source?: 'random' | 'wrong';
+  /** source=random 时用：可多条规则 */
+  rules?: SampleRule[];
+  /** source=wrong 时用：抽多少道 */
+  count?: number;
+  /** source=wrong 时用：只在某个分类的错题里抽 */
+  categoryId?: number | null;
+  durationSec?: number;
+}
+
+export async function startPractice(db: Db, userId: number, opts: PracticeOptions): Promise<number> {
+  const source = opts.source === 'wrong' ? 'wrong' : 'random';
+  const durationSec = opts.durationSec ?? 3600;
+
+  let questionIds: number[];
+  let title: string;
+  let randomConfig: string | null = null;
+
+  if (source === 'wrong') {
+    const count = opts.count ?? 10;
+    if (count < 1 || count > MAX_PAPER_QUESTIONS) {
+      throw new HttpError(400, `题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
+    }
+    questionIds = await sampleWrongQuestionIds(db, userId, count, opts.categoryId ?? null);
+    title = `错题练习（${questionIds.length} 题）`;
+  } else {
+    const rules: SampleRule[] = (opts.rules ?? []).map((r) => ({ categoryId: r.categoryId, count: r.count }));
+    const total = rules.reduce((s, r) => s + r.count, 0);
+    if (total < 1 || total > MAX_PAPER_QUESTIONS) {
+      throw new HttpError(400, `题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
+    }
+    questionIds = await sampleQuestionIds(db, rules);
+    title = `随机练习（${questionIds.length} 题）`;
+    randomConfig = JSON.stringify(rules);
   }
-  const questionIds = await sampleQuestionIds(db, rules);
+
   const now = Date.now();
   const deadlineAt = now + durationSec * 1000;
 
@@ -128,16 +161,17 @@ export async function startPractice(db: Db, userId: number, rules: SampleRule[],
     const paperRes = await trx
       .insertInto('paper')
       .values({
-        title: `练习卷（随机 ${questionIds.length} 题）`,
+        title,
         mode: 'random',
         question_count: questionIds.length,
         duration_sec: durationSec,
         pass_score: 60,
         review_mode: 'immediate',
         shuffle_options: 1,
-        random_config: JSON.stringify(rules),
+        random_config: randomConfig,
         status: 'draft',
         practice: 1,
+        practice_source: source,
         audience_mode: 'all',
         created_by: userId,
         created_at: now,
@@ -224,6 +258,7 @@ async function gradeAttempt(db: Db, attemptId: number, reason: 'manual' | 'viola
 
     let score = 0;
     let correctCount = 0;
+    const now = Date.now();
     for (const item of items) {
       const correct = correctMap.get(item.question_id) ?? new Set<number>();
       const selected: number[] = item.selected ? JSON.parse(item.selected) : [];
@@ -236,6 +271,14 @@ async function gradeAttempt(db: Db, attemptId: number, reason: 'manual' | 'viola
         .set({ is_correct: ok ? 1 : 0, score: itemScore })
         .where('id', '=', item.id)
         .execute();
+
+      // 顺手维护错题库：错题只在**判分之后**才写入，所以不存在提前看到答案的问题。
+      // 没作答（selected 为空）也算错 —— 考试里空着就是不得分，进错题本很合理。
+      if (ok) {
+        await recordCorrect(trx, attempt.user_id, item.question_id, now);
+      } else {
+        await recordWrong(trx, attempt.user_id, item.question_id, attemptId, now);
+      }
     }
 
     await trx

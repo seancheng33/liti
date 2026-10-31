@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography, theme as antdTheme } from 'antd';
 import {
+  ApartmentOutlined,
   AppstoreOutlined,
   BarChartOutlined,
   BgColorsOutlined,
@@ -13,7 +14,9 @@ import {
   ReadOutlined,
   SettingOutlined,
   TeamOutlined,
+  ThunderboltOutlined,
   UserOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
@@ -48,20 +51,21 @@ export default function AppLayout({ children }: { children?: React.ReactNode }) 
   const items = [
     { key: '/', icon: <HomeOutlined />, label: '首页' },
     { key: '/papers', icon: <FileTextOutlined />, label: '试卷' },
+    { key: '/practice', icon: <ThunderboltOutlined />, label: '练习中心' },
     { key: '/attempts', icon: <ProfileOutlined />, label: '我的答卷' },
+    { key: '/wrong', icon: <WarningOutlined />, label: '错题本' },
     ...(isManager
       ? [
           { key: '/questions', icon: <ReadOutlined />, label: '题库' },
           { key: '/categories', icon: <AppstoreOutlined />, label: '分类管理' },
+          { key: '/groups', icon: <ApartmentOutlined />, label: '学生分组' },
           { key: '/stats', icon: <BarChartOutlined />, label: '统计' },
         ]
       : []),
-    ...(isAdmin
-      ? [
-          { key: '/users', icon: <TeamOutlined />, label: '用户管理' },
-          { key: '/settings', icon: <SettingOutlined />, label: '网站管理' },
-        ]
+    ...(isManager
+      ? [{ key: '/users', icon: <TeamOutlined />, label: isAdmin ? '用户管理' : '学生管理' }]
       : []),
+    ...(isAdmin ? [{ key: '/settings', icon: <SettingOutlined />, label: '网站管理' }] : []),
     { type: 'divider' as const },
     { key: '/help', icon: <QuestionCircleOutlined />, label: '帮助' },
   ];

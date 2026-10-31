@@ -1,5 +1,6 @@
 import { Alert, Anchor, Card, Col, Collapse, Divider, Row, Space, Spin, Steps, Table, Tag, Typography } from 'antd';
 import {
+  ApartmentOutlined,
   BookOutlined,
   FileTextOutlined,
   FormOutlined,
@@ -7,6 +8,7 @@ import {
   ProfileOutlined,
   SettingOutlined,
   TeamOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../auth';
 import AppLayout from '../components/AppLayout';
@@ -17,9 +19,17 @@ import { SUBMIT_REASON_LABEL } from '../types';
 const { Paragraph, Text, Title } = Typography;
 
 const ROLE_ROWS = [
-  { key: 'student', role: '学生', scope: '答题、看自己的成绩与解析、随机练习（若开启）' },
-  { key: 'teacher', role: '教师', scope: '学生的全部能力 + 题库、分类管理、组卷发布、统计、导出成绩' },
-  { key: 'admin', role: '管理员', scope: '教师的全部能力 + 用户管理、网站配置（站名、公告、默认参数）' },
+  { key: 'student', role: '学生', scope: '答题、看自己的成绩与解析、练习中心（随机练习 + 错题练习）、自己的错题本' },
+  {
+    key: 'teacher',
+    role: '教师',
+    scope: '学生的全部能力 + 题库（含导入导出）、分类管理、学生分组、学生账号管理、组卷发布、统计、导出成绩',
+  },
+  {
+    key: 'admin',
+    role: '管理员',
+    scope: '教师的全部能力 + 用户管理（含教师与管理员账号）、网站配置（站名、公告、默认参数、练习开关）',
+  },
 ];
 
 const TEMPLATE_ROWS = [
@@ -127,6 +137,39 @@ const FAQ = [
       </Paragraph>
     ),
   },
+  {
+    key: 'q8',
+    label: '错题本里的题是怎么进来的？会自己消失吗？',
+    children: (
+      <Paragraph>
+        每次交卷判分时，答错的题（包括空着没答的）会自动进你的错题本，并记一次错误次数。
+        后来同一道题做对了，它会从「待订正」移到「已订正」，记录仍然留着；再做错又会回到待订正。
+        想彻底清掉，在错题本里勾选后「批量移除」即可。错题本只有你自己能看到。
+      </Paragraph>
+    ),
+  },
+  {
+    key: 'q9',
+    label: '分组可见和指定学生有什么区别？',
+    children: (
+      <Paragraph>
+        「指定学生」是点名字，名单是发布那一刻定下的；「分组」挂的是组本身，
+        组里加人减人，试卷的可见范围会跟着变 —— 转学生进来塞进组里，之前的卷子他立刻就能看。
+        两个可以一起用，取并集。
+      </Paragraph>
+    ),
+  },
+  {
+    key: 'q10',
+    label: '导出的题库表格能直接改完再导回去吗？',
+    children: (
+      <Paragraph>
+        可以。导出用的是和「模板」一样的 12 列结构，改完直接走「Excel 导入」就行。
+        两点注意：导出的表格里<Text strong>不含题目配图</Text>（模板没有图片列）；
+        导回去时按题干查重，题干没改的行会被判成「重复」。
+      </Paragraph>
+    ),
+  },
 ];
 
 export default function HelpPage() {
@@ -174,6 +217,8 @@ function HelpBody() {
                 { key: 'question', href: '#question', title: '题库与配图' },
                 { key: 'excel', href: '#excel', title: 'Excel 批量导入' },
                 { key: 'paper', href: '#paper', title: '组卷与发布' },
+                { key: 'practice', href: '#practice', title: '练习中心与错题本' },
+                { key: 'groups', href: '#groups', title: '学生分组与账号' },
                 { key: 'exam', href: '#exam', title: '答题与防作弊' },
                 { key: 'review', href: '#review', title: '交卷与解析' },
                 { key: 'stats', href: '#stats', title: '成绩与统计' },
@@ -289,6 +334,75 @@ function HelpBody() {
               <Tag>已存在则不导入</Tag>
               <Tag>允许重复</Tag>
             </Paragraph>
+            <Alert
+              type="info"
+              showIcon
+              message="导出：列结构和模板完全一致"
+              description="题库页右上角「导出」会把当前筛选结果导出成 Excel，列和模板一模一样，所以「导出 → 在 Excel 里改 → 再导入」是通的。注意导出的表格里不含题目配图（模板本来就没有图片列）。"
+            />
+          </Card>
+
+          <Card id="practice" style={{ marginBottom: 16 }}>
+            <Title level={4} style={{ marginTop: 0 }}>
+              <ThunderboltOutlined /> 练习中心与错题本
+            </Title>
+            <Paragraph>
+              左侧导航的「练习中心」是学生自己练手的地方，有两种练法：
+            </Paragraph>
+            <Space direction="vertical" size={8} style={{ marginBottom: 12 }}>
+              <Text>
+                <Tag color="blue">随机练习</Tag>
+                选分类（可以多选，题量会平均分到各分类）和题量，系统当场抽一份卷子给你。
+                每次抽到的题都不一样。
+              </Text>
+              <Text>
+                <Tag color="orange">错题练习</Tag>
+                只从你自己「还没订正」的错题里抽，专门补短板。
+              </Text>
+            </Space>
+            <Paragraph>
+              练习卷和正式试卷的区别：<Text strong>不计入「每卷 3 次」的限制</Text>、交卷后立刻能看解析、
+              不会出现在「试卷」列表里。成绩照样记在「我的答卷」里。
+            </Paragraph>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ margin: '4px 0 12px' }}
+              message="错题本是每人一份，互相看不到"
+              description={
+                <Space direction="vertical" size={2}>
+                  <Text>题目会在<Text strong>交卷判分之后</Text>才进错题本，所以不会提前泄露你还没考的卷子的答案。</Text>
+                  <Text>做对一次就自动从「待订正」里移出；再错一次会重新回来，并累计错误次数。</Text>
+                  <Text>题目如果在题库里被删了，错题记录仍然保留，可以继续复习。</Text>
+                </Space>
+              }
+            />
+            <Paragraph>
+              「错题本」页可以按分类筛、按题干搜，点「查看」能看到原题、正确答案和解析；
+              勾选多道可以批量移除，也可以一键「用错题练一遍」。
+            </Paragraph>
+          </Card>
+
+          <Card id="groups" style={{ marginBottom: 16 }}>
+            <Title level={4} style={{ marginTop: 0 }}>
+              <ApartmentOutlined /> 学生分组与账号管理
+            </Title>
+            <Paragraph>
+              学生多的时候，发布试卷一个个点名字太慢，可以先分组：左侧导航「学生分组」→ 新建分组（比如「高一（1）班」）
+              → 点「管成员」把学生勾进来。之后发布试卷时选<Text strong>按分组</Text>就能整组发。
+            </Paragraph>
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="试卷挂的是分组，不是名单快照"
+              description="往组里加人之后，之前发给这个组的试卷他也能立刻看到，不用重新发布。把学生移出分组，他也立刻看不到。"
+            />
+            <Paragraph>
+              教师可以在「学生管理」里创建学生账号、改显示名、重置密码、停用或删除学生。
+              为了安全，教师<Text strong>只能管学生</Text>：不能创建教师/管理员、不能改别人的角色、也不能给自己提权。
+              管理员账号仍然只有管理员能操作。
+            </Paragraph>
           </Card>
 
           <Card id="paper" style={{ marginBottom: 16 }}>
@@ -323,8 +437,11 @@ function HelpBody() {
                     <Tag>所有学生</Tag>：发布后出现在所有人的试卷列表和首页。
                   </Text>
                   <Text>
-                    <Tag color="geekblue">指定学生</Tag>：只给点名的学生看。不在名单里的学生连这份卷子都看不到，
-                    不是只挡住「开始答题」。发布后还能点「可见范围」随时改。
+                    <Tag color="geekblue">指定学生 / 分组</Tag>：只给点名的学生，以及勾选分组里的学生看（两者并集）。
+                    不在范围内的学生连这份卷子都看不到，不是只挡住「开始答题」。发布后还能点「可见范围」随时改。
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    经常要整班发卷的话，先在「学生分组」里把人分好，发布时直接选分组更省事。
                   </Text>
                 </Space>
               }

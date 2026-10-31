@@ -1,4 +1,4 @@
-import type { Generated } from 'kysely';
+import type { ColumnType, Generated } from 'kysely';
 
 export type Role = 'admin' | 'teacher' | 'student';
 
@@ -91,6 +91,8 @@ export interface PaperRow {
   random_config: string | null;
   status: PaperStatus;
   practice: number;
+  /** 练习卷的来源：random=随机练习，wrong=错题练习；普通试卷为 null（插入时可省略） */
+  practice_source: ColumnType<'random' | 'wrong' | null, 'random' | 'wrong' | null | undefined, 'random' | 'wrong' | null>;
   audience_mode: AudienceMode;
   created_by: number | null;
   created_at: number;
@@ -102,6 +104,47 @@ export interface PaperAudienceRow {
   paper_id: number;
   user_id: number;
   created_at: number;
+}
+
+/** 可见范围里的「整个分组」—— 分组是活的，成员变了这份卷子的可见范围跟着变 */
+export interface PaperAudienceGroupRow {
+  id: Generated<number>;
+  paper_id: number;
+  group_id: number;
+  created_at: number;
+}
+
+export interface StudentGroupRow {
+  id: Generated<number>;
+  name: string;
+  remark: string | null;
+  created_by: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface StudentGroupMemberRow {
+  id: Generated<number>;
+  group_id: number;
+  user_id: number;
+  created_at: number;
+}
+
+/**
+ * 错题库：每人一份，靠 user_id 隔离。
+ * 答错累加 wrong_count；答对把 resolved_at 置上（"已订正"），记录不删。
+ */
+export interface WrongQuestionRow {
+  id: Generated<number>;
+  user_id: number;
+  question_id: number;
+  wrong_count: number;
+  first_wrong_at: number;
+  last_wrong_at: number;
+  last_attempt_id: number | null;
+  resolved_at: number | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface PaperItemRow {
@@ -171,8 +214,12 @@ export interface Database {
   paper: PaperRow;
   paper_item: PaperItemRow;
   paper_audience: PaperAudienceRow;
+  paper_audience_group: PaperAudienceGroupRow;
+  student_group: StudentGroupRow;
+  student_group_member: StudentGroupMemberRow;
   attempt: AttemptRow;
   attempt_item: AttemptItemRow;
   attempt_violation: AttemptViolationRow;
+  wrong_question: WrongQuestionRow;
   setting: SettingRow;
 }

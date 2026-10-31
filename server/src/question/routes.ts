@@ -6,6 +6,7 @@ import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
 import * as service from './service.js';
 import { buildTemplate } from '../excel/template.js';
+import { exportQuestionsXlsx } from '../excel/export.js';
 import { importQuestions, parseQuestionRows } from '../excel/import.js';
 
 const imageListSchema = z.array(z.string()).optional();
@@ -63,6 +64,29 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
       filename: q.filename ?? 'import.xlsx',
       userId: user.userId,
     });
+  });
+
+  // Excel 导出：列结构与导入模板一致（导出→改→导入 闭环）
+  app.get('/export', async (request, reply) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const q = request.query as Record<string, unknown>;
+    const status: 'active' | 'archived' | 'all' =
+      q.status === 'archived' || q.status === 'all' ? q.status : 'active';
+
+    const { buffer } = await exportQuestionsXlsx(db, {
+      keyword: typeof q.keyword === 'string' && q.keyword ? q.keyword : undefined,
+      categoryId: q.categoryId != null && q.categoryId !== '' ? Number(q.categoryId) : null,
+      type: typeof q.type === 'string' && q.type ? q.type : undefined,
+      status,
+    });
+
+    const stamp = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    const name = `liti-questions-${stamp.getFullYear()}${p(stamp.getMonth() + 1)}${p(stamp.getDate())}-${p(stamp.getHours())}${p(stamp.getMinutes())}.xlsx`;
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', `attachment; filename="${name}"`);
+    return reply.send(buffer);
   });
 
   app.get('/', async (request) => {

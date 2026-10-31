@@ -11,6 +11,8 @@ import { categoryRoutes } from './category/routes.js';
 import { questionRoutes } from './question/routes.js';
 import { paperRoutes } from './paper/routes.js';
 import { attemptRoutes } from './attempt/routes.js';
+import { wrongRoutes } from './wrong/routes.js';
+import { groupRoutes } from './group/routes.js';
 import { statsRoutes } from './stats/routes.js';
 import { settingRoutes } from './settings/routes.js';
 import { publicRoutes } from './public/routes.js';
@@ -85,6 +87,8 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(questionRoutes, { db, prefix: '/api/questions' });
   await app.register(paperRoutes, { db, prefix: '/api/papers' });
   await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
+  await app.register(wrongRoutes, { db, prefix: '/api/wrong-questions' });
+  await app.register(groupRoutes, { db, prefix: '/api/groups' });
   await app.register(statsRoutes, { db, prefix: '/api/stats' });
   await app.register(settingRoutes, { db, prefix: '/api/settings' });
   await app.register(publicRoutes, { db, prefix: '/api/public' });

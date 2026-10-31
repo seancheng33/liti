@@ -13,6 +13,7 @@ import {
   ReadOutlined,
   ThunderboltOutlined,
   TeamOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -383,8 +384,11 @@ function HomeContent({ overview, papers, loading, loggedIn, onPreview, onStart, 
       {loggedIn && (
         <Card size="small" style={{ marginTop: 20 }} title="快捷入口">
           <Space wrap>
-            <Button icon={<ThunderboltOutlined />} onClick={onGoPapers}>
-              随机练习
+            <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/practice')}>
+              练习中心
+            </Button>
+            <Button icon={<WarningOutlined />} onClick={() => navigate('/wrong')}>
+              错题本
             </Button>
             <Button icon={<ProfileOutlined />} onClick={() => navigate('/attempts')}>
               我的答卷

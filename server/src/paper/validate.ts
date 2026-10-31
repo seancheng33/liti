@@ -14,9 +14,10 @@ export interface PaperInput {
   shuffleOptions?: boolean;
   randomRules?: RandomRule[];
   questionIds?: number[];
-  /** all = 所有学生可见（默认）；selected = 只给 audienceUserIds 里的学生看 */
+  /** all = 所有学生可见（默认）；selected = 只给 audienceUserIds 里的学生 + audienceGroupIds 里的分组看 */
   audienceMode?: AudienceMode;
   audienceUserIds?: number[];
+  audienceGroupIds?: number[];
 }
 
 export const MAX_PAPER_QUESTIONS = 100;
@@ -43,8 +44,8 @@ export function validatePaperInput(input: PaperInput): string[] {
     }
   }
 
-  if (input.audienceMode === 'selected' && !(input.audienceUserIds ?? []).length) {
-    errors.push('选择「指定学生」时至少要勾一个学生');
+  if (input.audienceMode === 'selected' && !(input.audienceUserIds ?? []).length && !(input.audienceGroupIds ?? []).length) {
+    errors.push('选择「指定学生」时至少要勾一个学生或一个分组');
   }
   return errors;
 }

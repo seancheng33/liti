@@ -44,6 +44,7 @@ import {
   type PaperRule,
   type Question,
   type SiteSettings,
+  type StudentGroup,
   type StudentOption,
 } from '../types';
 
@@ -58,11 +59,9 @@ export default function PapersPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const [practiceOpen, setPracticeOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [form] = Form.useForm();
-  const [practiceForm] = Form.useForm();
 
   // 手选题目
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -75,10 +74,12 @@ export default function PapersPage() {
 
   // 发布 / 可见范围
   const [students, setStudents] = useState<StudentOption[]>([]);
+  const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishTarget, setPublishTarget] = useState<Paper | null>(null);
   const [pubMode, setPubMode] = useState<'all' | 'selected'>('all');
   const [pubIds, setPubIds] = useState<number[]>([]);
+  const [pubGroupIds, setPubGroupIds] = useState<number[]>([]);
   const [pubLoading, setPubLoading] = useState(false);
 
   const isManager = user?.role === 'admin' || user?.role === 'teacher';
@@ -104,9 +105,10 @@ export default function PapersPage() {
     load();
     api.get<Category[]>('/api/categories').then(setCategories).catch(() => {});
     api.get<SiteSettings>('/api/settings').then(setSettings).catch(() => {});
-    // 学生名册只有教师/管理员用得上（发布时勾人）
+    // 学生名册与分组只有教师/管理员用得上（发布时挑人）
     if (isManager) {
       api.get<StudentOption[]>('/api/users/students').then(setStudents).catch(() => {});
+      api.get<StudentGroup[]>('/api/groups').then(setGroups).catch(() => {});
     }
   }, [load, isManager]);
 
@@ -233,31 +235,22 @@ export default function PapersPage() {
     }
   }
 
-  async function startPractice() {
-    const v = await practiceForm.validateFields();
-    try {
-      const res = await api.post<{ id: number }>('/api/attempts/practice', {
-        rules: [{ categoryId: v.categoryId ?? null, count: v.count }],
-        durationSec: (v.durationMin ?? 60) * 60,
-      });
-      navigate(`/exam/${res.id}`);
-    } catch (e) {
-      message.error((e as Error).message);
-    }
-  }
-
   /** 打开发布 / 可见范围弹窗，先把该卷当前的名单读出来 */
   async function openPublish(paper: Paper) {
     setPublishTarget(paper);
     setPubMode(paper.audience_mode === 'selected' ? 'selected' : 'all');
     setPubIds(paper.audience_user_ids ?? []);
+    setPubGroupIds(paper.audience_group_ids ?? []);
     setPublishOpen(true);
     try {
-      const aud = await api.get<{ audienceMode: 'all' | 'selected'; audienceUserIds: number[] }>(
-        `/api/papers/${paper.id}/audience`,
-      );
+      const aud = await api.get<{
+        audienceMode: 'all' | 'selected';
+        audienceUserIds: number[];
+        audienceGroupIds: number[];
+      }>(`/api/papers/${paper.id}/audience`);
       setPubMode(aud.audienceMode);
       setPubIds(aud.audienceUserIds);
+      setPubGroupIds(aud.audienceGroupIds ?? []);
     } catch {
       /* 草稿还没发布过，读不到就用默认值 */
     }
@@ -265,19 +258,23 @@ export default function PapersPage() {
 
   async function confirmPublish() {
     if (!publishTarget) return;
-    if (pubMode === 'selected' && !pubIds.length) {
-      message.warning('选了「指定学生」就要至少勾一个学生');
+    if (pubMode === 'selected' && !pubIds.length && !pubGroupIds.length) {
+      message.warning('选了「指定学生」就要至少勾一个学生或一个分组');
       return;
     }
     setPubLoading(true);
     try {
-      const body = { audienceMode: pubMode, audienceUserIds: pubIds };
+      const body = { audienceMode: pubMode, audienceUserIds: pubIds, audienceGroupIds: pubGroupIds };
       if (publishTarget.status === 'published') {
         await api.put(`/api/papers/${publishTarget.id}/audience`, body);
         message.success('可见范围已更新');
       } else {
         await api.post(`/api/papers/${publishTarget.id}/publish`, body);
-        message.success(pubMode === 'selected' ? `已发布，仅 ${pubIds.length} 名学生可见` : '已发布，所有学生可见');
+        message.success(
+          pubMode === 'selected'
+            ? `已发布，可见范围：${pubIds.length} 名学生 + ${pubGroupIds.length} 个分组`
+            : '已发布，所有学生可见',
+        );
       }
       setPublishOpen(false);
       load();
@@ -322,12 +319,13 @@ export default function PapersPage() {
     {
       title: '可见范围',
       dataIndex: 'audience_mode',
-      width: 120,
+      width: 130,
       render: (m: string, r: Paper) =>
         m === 'selected' ? (
-          <Tooltip title="只对点名的学生可见，其他人看不到这份卷子">
+          <Tooltip title="只对点名的学生 / 分组可见，其他人看不到这份卷子">
             <Tag color="geekblue" icon={<TeamOutlined />}>
-              指定 {r.audience_count ?? 0} 人
+              {r.audience_count ?? 0} 人
+              {(r.audience_group_count ?? 0) > 0 ? ` / ${r.audience_group_count} 组` : ''}
             </Tag>
           </Tooltip>
         ) : (
@@ -405,15 +403,8 @@ export default function PapersPage() {
         extra={
           <>
             {showPractice && (
-              <Button
-                icon={<ThunderboltOutlined />}
-                onClick={() => {
-                  practiceForm.resetFields();
-                  practiceForm.setFieldsValue({ count: 10, durationMin: 60 });
-                  setPracticeOpen(true);
-                }}
-              >
-                随机练习
+              <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/practice')}>
+                练习中心
               </Button>
             )}
             {isManager && (
@@ -618,8 +609,8 @@ export default function PapersPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="发布后学生才能作答，可以选择让所有学生看到，或者只给点名的学生看"
-          description="指定学生之后，不在名单里的学生连这份卷子都看不到（不是只挡住「开始答题」）。"
+          message="发布后学生才能作答，可以选择让所有学生看到，也可以只给点名的学生 / 分组看"
+          description="不在范围内的学生连这份卷子都看不到（不是只挡住「开始答题」）。挂分组的好处是：往组里加人之后，这份卷子他立刻也能看到。"
         />
 
         <Divider orientation="left" plain style={{ margin: '4px 0 12px' }}>
@@ -638,9 +629,9 @@ export default function PapersPage() {
             </Radio>
             <Radio value="selected">
               <Space direction="vertical" size={0}>
-                <span>指定学生</span>
+                <span>指定学生 / 分组</span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  只给下面勾选的学生看，其他人看不到这份卷子
+                  只给下面勾选的学生，以及勾选分组里的学生看；两者取并集
                 </Typography.Text>
               </Space>
             </Radio>
@@ -649,6 +640,21 @@ export default function PapersPage() {
 
         {pubMode === 'selected' && (
           <>
+            <div className="liti-field-label">按分组（推荐：一班、二班这样整组发）</div>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%', marginBottom: 14 }}
+              placeholder={groups.length ? '搜索并勾选分组' : '还没有分组，可以先到「学生分组」里建一个'}
+              value={pubGroupIds}
+              onChange={(v) => setPubGroupIds(v)}
+              optionFilterProp="label"
+              maxTagCount="responsive"
+              options={groups.map((g) => ({ value: g.id, label: `${g.name}（${g.memberCount} 人）` }))}
+              notFoundContent="没有可选的分组"
+            />
+
+            <div className="liti-field-label">再点名个别学生（可留空）</div>
             <Select
               mode="multiple"
               allowClear
@@ -663,46 +669,23 @@ export default function PapersPage() {
             />
             <Space style={{ marginTop: 8 }} size={10} wrap>
               <Button size="small" onClick={() => setPubIds(students.map((s) => s.id))}>
-                全选（{students.length} 人）
+                全选学生（{students.length} 人）
               </Button>
-              <Button size="small" onClick={() => setPubIds([])}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setPubIds([]);
+                  setPubGroupIds([]);
+                }}
+              >
                 清空
               </Button>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                已选 {pubIds.length} 人
+                已选 {pubIds.length} 人 + {pubGroupIds.length} 个分组
               </Typography.Text>
             </Space>
           </>
         )}
-      </Modal>
-
-      {/* ---------- 随机练习 ---------- */}
-      <Modal
-        title="随机练习"
-        open={practiceOpen}
-        onOk={startPractice}
-        onCancel={() => setPracticeOpen(false)}
-        okText="开始"
-        cancelText="取消"
-      >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="练习卷只算自己的成绩，不会出现在「试卷」列表里"
-          description="练习同样会计时和判分，但可以从「我的答卷」里随时回看解析。"
-        />
-        <Form form={practiceForm} layout="vertical">
-          <Form.Item name="categoryId" label="分类" tooltip="留空则从整个题库随机抽">
-            <Select allowClear placeholder="全部分类" options={categories.map((c) => ({ value: c.id, label: c.name }))} />
-          </Form.Item>
-          <Form.Item name="count" label="题目数量（1–100）" rules={[{ required: true }]} tooltip="题目不够时会提示缺多少">
-            <InputNumber min={1} max={100} />
-          </Form.Item>
-          <Form.Item name="durationMin" label="时长（分钟）" tooltip="到点自动交卷">
-            <InputNumber min={1} max={1440} />
-          </Form.Item>
-        </Form>
       </Modal>
 
       {/* ---------- 试卷预览（考生视角） ---------- */}

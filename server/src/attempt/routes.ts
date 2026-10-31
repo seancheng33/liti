@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
+import { HttpError } from '../http-error.js';
 import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
 import { exportAttemptsXlsx } from '../excel/export.js';
@@ -8,6 +9,16 @@ import * as service from './service.js';
 
 export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
   const { db } = opts;
+
+  /** 站点设置里的「学生自助练习」开关；没配置过就按开启算（与设置页默认值一致） */
+  async function practiceEnabled(): Promise<boolean> {
+    const row = await db
+      .selectFrom('setting')
+      .select('value')
+      .where('key', '=', 'practice_enabled')
+      .executeTakeFirst();
+    return (row?.value ?? 'true') !== 'false';
+  }
 
   app.get('/', async (request) => {
     const user = authenticate(request);
@@ -37,24 +48,42 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     return reply.send(buf);
   });
 
+  // 自助练习：source=random 按分类随机抽；source=wrong 从本人错题库抽
   app.post('/practice', async (request) => {
     const user = authenticate(request);
     const body = z
       .object({
-        rules: z.array(
-          z.object({
-            categoryId: z.number().int().nullable().optional(),
-            count: z.number().int().min(1),
-          }),
-        ),
+        source: z.enum(['random', 'wrong']).optional(),
+        rules: z
+          .array(
+            z.object({
+              categoryId: z.number().int().nullable().optional(),
+              count: z.number().int().min(1),
+            }),
+          )
+          .optional(),
+        count: z.number().int().min(1).max(100).optional(),
+        categoryId: z.number().int().nullable().optional(),
         durationSec: z.number().int().min(1).optional(),
       })
-      .parse(request.body);
-    const rules = body.rules.map((r) => ({
-      categoryId: r.categoryId ?? undefined,
-      count: r.count,
-    }));
-    const id = await service.startPractice(db, user.userId, rules, body.durationSec ?? 3600);
+      .parse(request.body ?? {});
+
+    const source = body.source === 'wrong' ? 'wrong' : 'random';
+    if (source === 'random' && !body.rules?.length) {
+      throw new HttpError(400, '随机练习需要指定抽题规则（分类与题量）');
+    }
+    // 站点设置里关掉「学生自助练习」就真的不让开 —— 否则只是前端把按钮藏了，接口照样能调
+    if (user.role === 'student' && !(await practiceEnabled())) {
+      throw new HttpError(403, '本站已关闭学生自助练习，请联系老师');
+    }
+
+    const id = await service.startPractice(db, user.userId, {
+      source,
+      rules: body.rules?.map((r) => ({ categoryId: r.categoryId ?? undefined, count: r.count })),
+      count: body.count,
+      categoryId: body.categoryId ?? null,
+      durationSec: body.durationSec ?? 3600,
+    });
     return { id };
   });
 

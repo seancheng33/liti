@@ -297,6 +297,38 @@ body {
   box-sizing: content-box;
 }
 
+/* 弹窗里给控件分组的小标题（分组选择 / 点名选择） */
+.liti-field-label {
+  font-size: 12px;
+  color: var(--liti-text-secondary, #8c8c8c);
+  margin-bottom: 6px;
+}
+
+/* 练习中心：多分类平均分配时的提示行 */
+.liti-practice-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--liti-text-secondary, #8c8c8c);
+  background: var(--liti-fill, rgba(0, 0, 0, 0.02));
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+/* 练习中心：最近错题一行一条，整行可点 */
+.liti-recent-wrong {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--liti-border);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.liti-recent-wrong:hover {
+  border-color: var(--liti-primary, #1677ff);
+  background: var(--liti-primary-bg, rgba(22, 119, 255, 0.04));
+}
+
 /* ---------- 题目卡片 ---------- */
 .liti-question-card .ant-card-head {
   border-bottom: 1px dashed var(--liti-border);

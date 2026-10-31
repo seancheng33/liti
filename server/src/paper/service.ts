@@ -72,8 +72,9 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       .execute();
   }
 
-  if (input.audienceMode === 'selected' && input.audienceUserIds?.length) {
-    await writeAudience(db, paperId, input.audienceUserIds, now);
+  if (input.audienceMode === 'selected' && (input.audienceUserIds?.length || input.audienceGroupIds?.length)) {
+    if (input.audienceUserIds?.length) await writeAudience(db, paperId, input.audienceUserIds, now);
+    if (input.audienceGroupIds?.length) await writeAudienceGroups(db, paperId, input.audienceGroupIds, now);
   }
   return paperId;
 }
@@ -89,28 +90,54 @@ async function writeAudience(db: AnyDb, paperId: number, userIds: number[], now 
     .execute();
 }
 
-/** 发布时（或发布后）指定可见范围 */
+/**
+ * 覆盖式写入「可见分组」。
+ * 存分组而不是展开成员：分组加人之后，这份卷子的可见范围自动跟着变。
+ */
+async function writeAudienceGroups(db: AnyDb, paperId: number, groupIds: number[], now = Date.now()): Promise<void> {
+  const unique = [...new Set(groupIds)];
+  await db.deleteFrom('paper_audience_group').where('paper_id', '=', paperId).execute();
+  if (!unique.length) return;
+  await db
+    .insertInto('paper_audience_group')
+    .values(unique.map((gid) => ({ paper_id: paperId, group_id: gid, created_at: now })))
+    .execute();
+}
+
+/** 发布时（或发布后）指定可见范围：可以直接点名，也可以指向整个分组（取并集） */
 export async function setPaperAudience(
   db: Db,
   id: number,
   mode: AudienceMode,
   userIds: number[],
-): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[] }> {
+  groupIds: number[] = [],
+): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[]; audienceGroupIds: number[] }> {
   const existing = await db.selectFrom('paper').select('id').where('id', '=', id).executeTakeFirst();
   if (!existing) throw new HttpError(404, '试卷不存在');
 
   const unique = [...new Set(userIds)];
+  const uniqueGroups = [...new Set(groupIds)];
   if (mode === 'selected') {
-    if (!unique.length) throw new HttpError(400, '选择「指定学生」时至少要勾一个学生');
-    const valid = await db
-      .selectFrom('user')
-      .select('id')
-      .where('id', 'in', unique)
-      .where('role', '=', 'student')
-      .execute();
-    const validIds = new Set(valid.map((u) => u.id));
-    const bad = unique.filter((uid) => !validIds.has(uid));
-    if (bad.length) throw new HttpError(400, `以下用户不是学生或不存在：${bad.join(',')}`);
+    if (!unique.length && !uniqueGroups.length) {
+      throw new HttpError(400, '选择「指定学生」时至少要勾一个学生或一个分组');
+    }
+    if (unique.length) {
+      const valid = await db
+        .selectFrom('user')
+        .select('id')
+        .where('id', 'in', unique)
+        .where('role', '=', 'student')
+        .execute();
+      const validIds = new Set(valid.map((u) => u.id));
+      const bad = unique.filter((uid) => !validIds.has(uid));
+      if (bad.length) throw new HttpError(400, `以下用户不是学生或不存在：${bad.join(',')}`);
+    }
+    if (uniqueGroups.length) {
+      const rows = await db.selectFrom('student_group').select('id').where('id', 'in', uniqueGroups).execute();
+      const validIds = new Set(rows.map((g) => g.id));
+      const bad = uniqueGroups.filter((gid) => !validIds.has(gid));
+      if (bad.length) throw new HttpError(400, `以下分组不存在：${bad.join(',')}`);
+    }
   }
 
   await db.transaction().execute(async (trx) => {
@@ -120,31 +147,59 @@ export async function setPaperAudience(
       .where('id', '=', id)
       .execute();
     await writeAudience(trx, id, mode === 'selected' ? unique : []);
+    await writeAudienceGroups(trx, id, mode === 'selected' ? uniqueGroups : []);
   });
 
-  return { audienceMode: mode, audienceUserIds: mode === 'selected' ? unique : [] };
+  return {
+    audienceMode: mode,
+    audienceUserIds: mode === 'selected' ? unique : [],
+    audienceGroupIds: mode === 'selected' ? uniqueGroups : [],
+  };
 }
 
 /** 读一份试卷的可见名单 */
-export async function getPaperAudience(db: Db, id: number): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[] }> {
+export async function getPaperAudience(
+  db: Db,
+  id: number,
+): Promise<{ audienceMode: AudienceMode; audienceUserIds: number[]; audienceGroupIds: number[] }> {
   const paper = await db.selectFrom('paper').select('audience_mode').where('id', '=', id).executeTakeFirst();
   if (!paper) throw new HttpError(404, '试卷不存在');
   const rows = await db.selectFrom('paper_audience').select('user_id').where('paper_id', '=', id).execute();
-  return { audienceMode: paper.audience_mode, audienceUserIds: rows.map((r) => r.user_id) };
+  const groups = await db
+    .selectFrom('paper_audience_group')
+    .select('group_id')
+    .where('paper_id', '=', id)
+    .execute();
+  return {
+    audienceMode: paper.audience_mode,
+    audienceUserIds: rows.map((r) => r.user_id),
+    audienceGroupIds: groups.map((g) => g.group_id),
+  };
 }
 
-/** 这个学生能不能看到/作答这份试卷 */
+/** 这个学生能不能看到/作答这份试卷（点名 ∪ 所在分组） */
 export async function paperVisibleTo(db: Db, paperId: number, userId: number): Promise<boolean> {
   const paper = await db.selectFrom('paper').select('audience_mode').where('id', '=', paperId).executeTakeFirst();
   if (!paper) return false;
   if (paper.audience_mode !== 'selected') return true;
+
   const hit = await db
     .selectFrom('paper_audience')
     .select('id')
     .where('paper_id', '=', paperId)
     .where('user_id', '=', userId)
     .executeTakeFirst();
-  return !!hit;
+  if (hit) return true;
+
+  // 分组可见：只要他在这份卷子挂的任意一个组里就算
+  const viaGroup = await db
+    .selectFrom('paper_audience_group as pag')
+    .innerJoin('student_group_member as m', 'm.group_id', 'pag.group_id')
+    .select('pag.id')
+    .where('pag.paper_id', '=', paperId)
+    .where('m.user_id', '=', userId)
+    .executeTakeFirst();
+  return !!viaGroup;
 }
 
 /** 把组卷入参解析成最终题号数组（随机抽样或手选校验） */
@@ -177,10 +232,16 @@ export async function getPaperDetail(db: Db, id: number) {
   if (!paper) return null;
   const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', id).orderBy('order_no', 'asc').execute();
   const audience = await db.selectFrom('paper_audience').select('user_id').where('paper_id', '=', id).execute();
+  const audienceGroups = await db
+    .selectFrom('paper_audience_group')
+    .select('group_id')
+    .where('paper_id', '=', id)
+    .execute();
   return {
     ...paper,
     random_config: paper.random_config ? JSON.parse(paper.random_config) : null,
     audience_user_ids: audience.map((a) => a.user_id),
+    audience_group_ids: audienceGroups.map((g) => g.group_id),
     items,
   };
 }
@@ -194,7 +255,7 @@ export async function listPapers(
   let base = db.selectFrom('paper').where('practice', '=', 0);
   if (opts.status) base = base.where('status', '=', opts.status as 'draft' | 'published' | 'archived');
 
-  // 学生只能看到「公开」或「被点名」的卷子
+  // 学生只能看到「公开」或「被点名 / 所在分组被点名」的卷子
   const isStudent = opts.viewer?.role === 'student';
   if (isStudent && opts.viewer) {
     const viewerId = opts.viewer.userId;
@@ -206,6 +267,15 @@ export async function listPapers(
           'in',
           eb.selectFrom('paper_audience').select('paper_id').where('user_id', '=', viewerId),
         ),
+        eb(
+          'id',
+          'in',
+          eb
+            .selectFrom('paper_audience_group as pag')
+            .innerJoin('student_group_member as m', 'm.group_id', 'pag.group_id')
+            .select('pag.paper_id')
+            .where('m.user_id', '=', viewerId),
+        ),
       ]),
     );
   }
@@ -213,7 +283,7 @@ export async function listPapers(
   const total = Number((await base.select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
   const items = await base.selectAll().orderBy('id', 'desc').limit(pageSize).offset((page - 1) * pageSize).execute();
 
-  // 可见名单人数（列表上显示「指定 N 人」，不用逐行再查一次）
+  // 可见名单人数（列表上显示「指定 N 人 / M 组」，不用逐行再查一次）
   const audienceRows = items.length
     ? await db
         .selectFrom('paper_audience')
@@ -223,7 +293,22 @@ export async function listPapers(
         .execute()
     : [];
   const audienceMap = new Map(audienceRows.map((r) => [Number(r.paper_id), Number(r.c)]));
-  const withAudience = items.map((p) => ({ ...p, audience_count: audienceMap.get(p.id) ?? 0 }));
+
+  const groupRows = items.length
+    ? await db
+        .selectFrom('paper_audience_group')
+        .select(['paper_id', (eb) => eb.fn.countAll().as('c')])
+        .where('paper_id', 'in', items.map((i) => i.id))
+        .groupBy('paper_id')
+        .execute()
+    : [];
+  const groupMap = new Map(groupRows.map((r) => [Number(r.paper_id), Number(r.c)]));
+
+  const withAudience = items.map((p) => ({
+    ...p,
+    audience_count: audienceMap.get(p.id) ?? 0,
+    audience_group_count: groupMap.get(p.id) ?? 0,
+  }));
 
   // 学生视角附上「已作答次数 / 剩余次数」，前端才能把「开始答题」换成「已用完」
   if (isStudent && opts.viewer && items.length) {
@@ -258,6 +343,7 @@ export async function setPaperStatus(db: Db, id: number, status: 'draft' | 'publ
 export async function deletePaper(db: Db, id: number): Promise<void> {
   await db.transaction().execute(async (trx) => {
     await trx.deleteFrom('paper_audience').where('paper_id', '=', id).execute();
+    await trx.deleteFrom('paper_audience_group').where('paper_id', '=', id).execute();
     await trx.deleteFrom('paper_item').where('paper_id', '=', id).execute();
     await trx.deleteFrom('paper').where('id', '=', id).execute();
   });
