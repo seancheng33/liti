@@ -135,6 +135,12 @@ export interface AttemptViolationRow {
   meta: string | null;
 }
 
+export interface SettingRow {
+  key: string;
+  value: string;
+  updated_at: number;
+}
+
 export interface Database {
   user: UserRow;
   session: SessionRow;
@@ -147,4 +153,5 @@ export interface Database {
   attempt: AttemptRow;
   attempt_item: AttemptItemRow;
   attempt_violation: AttemptViolationRow;
+  setting: SettingRow;
 }

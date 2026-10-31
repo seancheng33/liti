@@ -18,6 +18,12 @@ export default function AppLayout() {
           { key: '/stats', label: '统计' },
         ]
       : []),
+    ...(user && user.role === 'admin'
+      ? [
+          { key: '/users', label: '用户管理' },
+          { key: '/settings', label: '网站管理' },
+        ]
+      : []),
   ];
 
   return (

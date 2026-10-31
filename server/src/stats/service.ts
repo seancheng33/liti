@@ -27,6 +27,7 @@ export async function getStats(db: Db) {
   const categoryCount = Number((await db.selectFrom('category').select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
   const paperCount = Number((await db.selectFrom('paper').select((eb) => eb.fn.countAll().as('c')).where('practice', '=', 0).executeTakeFirstOrThrow()).c);
   const attemptCount = Number((await db.selectFrom('attempt').select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
+  const userCount = Number((await db.selectFrom('user').select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
 
   const graded = await db
     .selectFrom('attempt')
@@ -72,6 +73,7 @@ export async function getStats(db: Db) {
     categoryCount,
     paperCount,
     attemptCount,
+    userCount,
     gradedCount,
     avgScorePercent,
     correctRate,

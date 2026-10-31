@@ -9,6 +9,7 @@ export default function ExamPage() {
   const navigate = useNavigate();
   const [review, setReview] = useState<AttemptReview | null>(null);
   const [answers, setAnswers] = useState<Record<number, number[]>>({});
+  const [current, setCurrent] = useState(0); // 当前题索引（0-based）
   const [remaining, setRemaining] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const [violations, setViolations] = useState(0);
@@ -118,62 +119,118 @@ export default function ExamPage() {
 
   const mins = Math.floor((remaining ?? 0) / 60);
   const secs = String((remaining ?? 0) % 60).padStart(2, '0');
+  const items = review.items;
+  const item = items[current];
+  const answeredCount = items.filter((it) => (answers[it.questionId] ?? []).length > 0).length;
 
   return (
     <div>
+      {/* 顶部信息卡片 */}
       <Card>
-        <Space direction="vertical">
+        <Space direction="vertical" style={{ width: '100%' }}>
           <Typography.Title level={4} style={{ margin: 0 }}>
             {review.paperTitle}
           </Typography.Title>
-          <Space size="large">
+          <Space size="large" wrap>
             <Typography.Text strong>
               剩余时间：{mins}:{secs}
             </Typography.Text>
+            <Typography.Text>已答：{answeredCount}/{items.length}</Typography.Text>
             <Typography.Text type={violations > 0 ? 'danger' : 'secondary'}>违规次数：{violations}/3</Typography.Text>
           </Space>
         </Space>
       </Card>
 
-      {review.items.map((item, idx) => (
-        <Card key={item.questionId} title={`第 ${idx + 1} 题（${item.type === 'single' ? '单选' : '多选'}）`} style={{ marginTop: 12 }}>
-          <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{item.stem}</Typography.Paragraph>
-          {item.type === 'single' ? (
-            <Radio.Group
-              value={answers[item.questionId]?.[0]}
-              onChange={(e) => saveAnswer(item.questionId, [e.target.value])}
-            >
-              <Space direction="vertical">
-                {item.options.map((o, i) => (
-                  <Radio key={o.id} value={o.id}>
-                    {String.fromCharCode(65 + i)}. {o.content}
-                  </Radio>
-                ))}
-              </Space>
-            </Radio.Group>
-          ) : (
+      {/* 当前题目卡片 */}
+      <Card
+        key={item.questionId}
+        title={`第 ${current + 1} 题（${item.type === 'single' ? '单选' : '多选'}）`}
+        style={{ marginTop: 12 }}
+      >
+        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', fontSize: 16 }}>{item.stem}</Typography.Paragraph>
+        {item.type === 'single' ? (
+          <Radio.Group
+            value={answers[item.questionId]?.[0]}
+            onChange={(e) => saveAnswer(item.questionId, [e.target.value])}
+          >
             <Space direction="vertical">
               {item.options.map((o, i) => (
-                <Checkbox
-                  key={o.id}
-                  checked={(answers[item.questionId] ?? []).includes(o.id)}
-                  onChange={(e) => {
-                    const cur = answers[item.questionId] ?? [];
-                    const next = e.target.checked ? [...cur, o.id] : cur.filter((x) => x !== o.id);
-                    saveAnswer(item.questionId, next);
-                  }}
-                >
+                <Radio key={o.id} value={o.id}>
                   {String.fromCharCode(65 + i)}. {o.content}
-                </Checkbox>
+                </Radio>
               ))}
             </Space>
-          )}
-        </Card>
-      ))}
+          </Radio.Group>
+        ) : (
+          <Space direction="vertical">
+            {item.options.map((o, i) => (
+              <Checkbox
+                key={o.id}
+                checked={(answers[item.questionId] ?? []).includes(o.id)}
+                onChange={(e) => {
+                  const cur = answers[item.questionId] ?? [];
+                  const next = e.target.checked ? [...cur, o.id] : cur.filter((x) => x !== o.id);
+                  saveAnswer(item.questionId, next);
+                }}
+              >
+                {String.fromCharCode(65 + i)}. {o.content}
+              </Checkbox>
+            ))}
+          </Space>
+        )}
+      </Card>
 
-      <Button type="primary" size="large" block style={{ marginTop: 16 }} loading={submitting} onClick={() => handleSubmit()}>
-        交卷
-      </Button>
+      {/* 底部：翻页 + 题号导航 */}
+      <Card style={{ marginTop: 12 }}>
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Space>
+            <Button disabled={current === 0} onClick={() => setCurrent(current - 1)}>
+              上一题
+            </Button>
+            <Button type="primary" disabled={current === items.length - 1} onClick={() => setCurrent(current + 1)}>
+              下一题
+            </Button>
+            <Button type="primary" danger size="large" loading={submitting} onClick={() => handleSubmit()}>
+              交卷
+            </Button>
+          </Space>
+
+          <div>
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              答题卡（点击题号跳转）
+            </Typography.Text>
+            <Space wrap size={[8, 8]}>
+              {items.map((it, idx) => {
+                const answered = (answers[it.questionId] ?? []).length > 0;
+                const isCurrent = idx === current;
+                return (
+                  <Button
+                    key={it.questionId}
+                    shape="circle"
+                    size="small"
+                    onClick={() => setCurrent(idx)}
+                    style={{
+                      background: answered ? '#52c41a' : '#f0f0f0',
+                      color: answered ? '#fff' : '#666',
+                      borderColor: isCurrent ? '#1677ff' : answered ? '#52c41a' : '#d9d9d9',
+                      borderWidth: isCurrent ? 2 : 1,
+                      fontWeight: isCurrent ? 700 : 400,
+                    }}
+                  >
+                    {idx + 1}
+                  </Button>
+                );
+              })}
+            </Space>
+            <div style={{ marginTop: 8 }}>
+              <Space size="large">
+                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#52c41a', borderRadius: '50%', marginRight: 4 }} />已答</span>
+                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#f0f0f0', border: '1px solid #d9d9d9', borderRadius: '50%', marginRight: 4 }} />未答</span>
+              </Space>
+            </div>
+          </div>
+        </Space>
+      </Card>
 
       <Modal open={paused} closable={false} footer={null} maskClosable={false}>
         <Result

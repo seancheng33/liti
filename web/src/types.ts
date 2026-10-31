@@ -97,3 +97,25 @@ export interface AttemptSummary {
   paper_title: string;
   question_count: number;
 }
+
+export interface SiteSettings {
+  siteName: string;
+  siteAnnouncement: string;
+  defaultDurationSec: number;
+  defaultPassScore: number;
+  practiceEnabled: boolean;
+}
+
+export interface StatsOverview {
+  questionCount: number;
+  questionByType: { single: number; multiple: number };
+  questionByDifficulty: { difficulty: number; count: number }[];
+  categoryCount: number;
+  paperCount: number;
+  attemptCount: number;
+  userCount: number;
+  gradedCount: number;
+  avgScorePercent: number;
+  correctRate: number;
+  correctByDifficulty: { difficulty: number; total: number; correct: number; rate: number }[];
+}
