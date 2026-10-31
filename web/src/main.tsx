@@ -4,6 +4,7 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import { ThemeProvider, useTheme } from './theme';
+import './styles.css';
 
 function ThemedApp() {
   const { config } = useTheme();

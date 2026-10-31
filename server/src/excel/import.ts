@@ -17,14 +17,6 @@ export function mapQuestionType(v: string): QuestionType | null {
   return null;
 }
 
-export function mapDifficulty(v: string | undefined): number | null {
-  const s = (v ?? '').trim();
-  if (['1', '易', '简单'].includes(s)) return 1;
-  if (['2', '中', '中等'].includes(s)) return 2;
-  if (['3', '难', '困难'].includes(s)) return 3;
-  return null;
-}
-
 function cellText(row: ExcelJS.Row, col: number): string {
   const v = row.getCell(col).value;
   if (v == null) return '';
@@ -70,14 +62,13 @@ export async function parseQuestionRows(buffer: Buffer): Promise<ParsedRow[]> {
       isCorrect: answerRaw.includes(String.fromCharCode(65 + i)),
     }));
 
-    const tagsRaw = cellText(row, 13);
+    const tagsRaw = cellText(row, 12);
     const tags = tagsRaw ? tagsRaw.split(/[,，]/).map((t) => t.trim()).filter(Boolean) : [];
 
     const draft: QuestionDraft = {
       type: type ?? 'single',
       stem,
       explanation: cellText(row, 10) || undefined,
-      difficulty: mapDifficulty(cellText(row, 12)) ?? undefined,
       tags,
       options: optionInputs,
     };

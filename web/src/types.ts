@@ -12,6 +12,7 @@ export interface AuthUser {
 export interface QuestionOption {
   id?: number;
   content: string;
+  images?: string[];
   isCorrect: boolean;
   sortOrder?: number;
 }
@@ -20,10 +21,10 @@ export interface Question {
   id: number;
   type: 'single' | 'multiple';
   stem: string;
+  images?: string[];
   explanation?: string | null;
   category_id?: number | null;
-  difficulty: number;
-  tags: string[];
+  tags?: string[];
   status: string;
   options?: QuestionOption[];
   option_count?: number;
@@ -37,6 +38,12 @@ export interface Category {
   sort: number;
 }
 
+/** 随机抽题规则：从某个分类（留空 = 整个题库）抽 N 题 */
+export interface PaperRule {
+  categoryId?: number | null;
+  count: number;
+}
+
 export interface Paper {
   id: number;
   title: string;
@@ -47,12 +54,13 @@ export interface Paper {
   review_mode: 'after_submit' | 'immediate';
   shuffle_options: number;
   status: 'draft' | 'published' | 'archived';
-  random_config?: unknown;
+  random_config?: PaperRule[] | null;
 }
 
 export interface AttemptOption {
   id: number;
   content: string;
+  images?: string[];
   isCorrect: boolean | null;
 }
 
@@ -61,6 +69,7 @@ export interface AttemptItem {
   questionId: number;
   type?: string;
   stem?: string;
+  images?: string[];
   explanation?: string | null;
   options: AttemptOption[];
   selectedOptionIds: number[];
@@ -110,7 +119,6 @@ export interface SiteSettings {
 export interface StatsOverview {
   questionCount: number;
   questionByType: { single: number; multiple: number };
-  questionByDifficulty: { difficulty: number; count: number }[];
   categoryCount: number;
   paperCount: number;
   attemptCount: number;
@@ -118,5 +126,29 @@ export interface StatsOverview {
   gradedCount: number;
   avgScorePercent: number;
   correctRate: number;
-  correctByDifficulty: { difficulty: number; total: number; correct: number; rate: number }[];
+  correctByCategory: { category: string; total: number; correct: number; rate: number }[];
 }
+
+/** 交卷原因 → 中文文案（后端存 manual / timeout / violation） */
+export const SUBMIT_REASON_LABEL: Record<string, string> = {
+  manual: '正常交卷',
+  timeout: '异常：超时交卷',
+  violation: '异常：违规强制交卷',
+};
+
+export function submitReasonText(reason?: string | null): string {
+  if (!reason) return '-';
+  return SUBMIT_REASON_LABEL[reason] ?? reason;
+}
+
+export const STATUS_LABEL: Record<string, string> = {
+  in_progress: '进行中',
+  submitted: '已交卷',
+  expired: '已超时',
+};
+
+export const PAPER_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿',
+  published: '已发布',
+  archived: '已归档',
+};

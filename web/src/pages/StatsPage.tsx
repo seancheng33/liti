@@ -1,77 +1,75 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, Table, message } from 'antd';
+import { Card, Col, Progress, Row, Statistic, Table, message } from 'antd';
 import { api } from '../api';
-
-interface Stats {
-  questionCount: number;
-  questionByType: { single: number; multiple: number };
-  questionByDifficulty: { difficulty: number; count: number }[];
-  categoryCount: number;
-  paperCount: number;
-  attemptCount: number;
-  gradedCount: number;
-  avgScorePercent: number;
-  correctRate: number;
-  correctByDifficulty: { difficulty: number; total: number; correct: number; rate: number }[];
-}
-
-const DIFF_LABEL: Record<number, string> = { 1: '易', 2: '中', 3: '难' };
+import PageHeader from '../components/PageHeader';
+import type { StatsOverview } from '../types';
 
 export default function StatsPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<StatsOverview | null>(null);
 
   useEffect(() => {
     api
-      .get<Stats>('/api/stats/overview')
+      .get<StatsOverview>('/api/stats/overview')
       .then(setStats)
       .catch((e) => message.error((e as Error).message));
   }, []);
 
   if (!stats) {
-    return <div style={{ padding: 40 }}>加载中…</div>;
+    return <div className="liti-loading">加载中…</div>;
   }
 
-  const diffColumns = [
-    { title: '难度', dataIndex: 'difficulty', width: 80, render: (d: number) => DIFF_LABEL[d] ?? d },
-    { title: '作答数', dataIndex: 'total', width: 100 },
-    { title: '答对数', dataIndex: 'correct', width: 100 },
-    { title: '正确率', dataIndex: 'rate', render: (r: number) => `${(r * 100).toFixed(1)}%` },
+  const cards = [
+    { title: '题目总数', value: stats.questionCount },
+    { title: '单选题', value: stats.questionByType.single },
+    { title: '多选题', value: stats.questionByType.multiple },
+    { title: '分类数', value: stats.categoryCount },
+    { title: '试卷数', value: stats.paperCount },
+    { title: '答卷数', value: stats.attemptCount },
+    { title: '已判答卷', value: stats.gradedCount },
+    { title: '平均得分率', value: stats.avgScorePercent, suffix: '%' },
   ];
 
   return (
-    <div>
-      <Row gutter={16}>
-        <Col span={6}><Card><Statistic title="题目总数" value={stats.questionCount} /></Card></Col>
-        <Col span={6}><Card><Statistic title="分类数" value={stats.categoryCount} /></Card></Col>
-        <Col span={6}><Card><Statistic title="试卷数" value={stats.paperCount} /></Card></Col>
-        <Col span={6}><Card><Statistic title="答卷数" value={stats.attemptCount} /></Card></Col>
-      </Row>
-      <Row gutter={16} style={{ marginTop: 16 }}>
-        <Col span={6}><Card><Statistic title="单选题" value={stats.questionByType.single} /></Card></Col>
-        <Col span={6}><Card><Statistic title="多选题" value={stats.questionByType.multiple} /></Card></Col>
-        <Col span={6}><Card><Statistic title="平均得分率" value={stats.avgScorePercent} suffix="%" /></Card></Col>
-        <Col span={6}><Card><Statistic title="总体正确率" value={(stats.correctRate * 100).toFixed(1)} suffix="%" /></Card></Col>
+    <div className="liti-page">
+      <PageHeader title="统计" description="题库规模、作答情况与各分类的正确率一览。" />
+
+      <Row gutter={[16, 16]}>
+        {cards.map((c) => (
+          <Col key={c.title} xs={12} sm={8} md={6}>
+            <Card className="liti-stat-card">
+              <Statistic title={c.title} value={c.value} suffix={c.suffix} />
+            </Card>
+          </Col>
+        ))}
       </Row>
 
-      <Card title="按难度正确率" style={{ marginTop: 16 }}>
-        <Table
-          rowKey="difficulty"
-          columns={diffColumns}
-          dataSource={stats.correctByDifficulty}
-          pagination={false}
-          locale={{ emptyText: '暂无答题数据' }}
+      <Card title="总体正确率" style={{ marginTop: 16 }}>
+        <Progress
+          percent={Math.round(stats.correctRate * 1000) / 10}
+          status="active"
+          strokeColor={{ from: '#1677ff', to: '#52c41a' }}
         />
       </Card>
 
-      <Card title="题库难度分布" style={{ marginTop: 16 }}>
+      <Card title="各分类正确率" style={{ marginTop: 16 }} styles={{ body: { padding: 0 } }}>
         <Table
-          rowKey="difficulty"
-          columns={[
-            { title: '难度', dataIndex: 'difficulty', render: (d: number) => DIFF_LABEL[d] ?? d },
-            { title: '题目数', dataIndex: 'count' },
-          ]}
-          dataSource={stats.questionByDifficulty}
+          rowKey="category"
+          dataSource={stats.correctByCategory}
           pagination={false}
+          locale={{ emptyText: '暂无答题数据' }}
+          columns={[
+            { title: '分类', dataIndex: 'category' },
+            { title: '作答数', dataIndex: 'total', width: 120 },
+            { title: '答对数', dataIndex: 'correct', width: 120 },
+            {
+              title: '正确率',
+              dataIndex: 'rate',
+              width: 220,
+              render: (r: number) => (
+                <Progress percent={Math.round(r * 1000) / 10} size="small" strokeColor={r >= 0.6 ? '#16a34a' : '#fa8c16'} />
+              ),
+            },
+          ]}
         />
       </Card>
     </div>

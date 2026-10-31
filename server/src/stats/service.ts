@@ -14,16 +14,6 @@ export async function getStats(db: Db) {
   const questionByType: Record<string, number> = { single: 0, multiple: 0 };
   for (const r of byTypeRows) questionByType[r.type] = Number(r.c);
 
-  const questionByDifficulty = (
-    await db
-      .selectFrom('question')
-      .select(['difficulty', (eb) => eb.fn.countAll().as('c')])
-      .where('status', '=', 'active')
-      .groupBy('difficulty')
-      .orderBy('difficulty', 'asc')
-      .execute()
-  ).map((r) => ({ difficulty: r.difficulty, count: Number(r.c) }));
-
   const categoryCount = Number((await db.selectFrom('category').select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
   const paperCount = Number((await db.selectFrom('paper').select((eb) => eb.fn.countAll().as('c')).where('practice', '=', 0).executeTakeFirstOrThrow()).c);
   const attemptCount = Number((await db.selectFrom('attempt').select((eb) => eb.fn.countAll().as('c')).executeTakeFirstOrThrow()).c);
@@ -47,29 +37,36 @@ export async function getStats(db: Db) {
   );
   const correctRate = answeredCount ? Math.round((correctCount / answeredCount) * 1000) / 1000 : 0;
 
-  const correctByDifficulty = (
-    await db
-      .selectFrom('attempt_item')
-      .innerJoin('question', 'question.id', 'attempt_item.question_id')
-      .select([
-        'question.difficulty as difficulty',
-        (eb) => eb.fn.countAll().as('total'),
-        (eb) => eb.fn.sum('attempt_item.is_correct').as('correct'),
-      ])
-      .where('attempt_item.is_correct', 'is not', null)
-      .groupBy('question.difficulty')
-      .orderBy('question.difficulty', 'asc')
-      .execute()
-  ).map((r) => {
-    const total = Number(r.total);
-    const correct = Number(r.correct ?? 0);
-    return { difficulty: r.difficulty, total, correct, rate: total ? Math.round((correct / total) * 1000) / 1000 : 0 };
-  });
+  // 按分类统计正确率（替代原来的难度维度）
+  const categoryRows = await db
+    .selectFrom('attempt_item')
+    .innerJoin('question', 'question.id', 'attempt_item.question_id')
+    .leftJoin('category', 'category.id', 'question.category_id')
+    .select([
+      'category.name as name',
+      (eb) => eb.fn.countAll().as('total'),
+      (eb) => eb.fn.sum('attempt_item.is_correct').as('correct'),
+    ])
+    .where('attempt_item.is_correct', 'is not', null)
+    .groupBy('category.name')
+    .execute();
+
+  const correctByCategory = categoryRows
+    .map((r) => {
+      const total = Number(r.total);
+      const correct = Number(r.correct ?? 0);
+      return {
+        category: r.name ?? '未分类',
+        total,
+        correct,
+        rate: total ? Math.round((correct / total) * 1000) / 1000 : 0,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
 
   return {
     questionCount,
     questionByType,
-    questionByDifficulty,
     categoryCount,
     paperCount,
     attemptCount,
@@ -77,6 +74,6 @@ export async function getStats(db: Db) {
     gradedCount,
     avgScorePercent,
     correctRate,
-    correctByDifficulty,
+    correctByCategory,
   };
 }

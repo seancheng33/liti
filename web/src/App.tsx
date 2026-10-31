@@ -3,6 +3,7 @@ import { Spin } from 'antd';
 import { AuthProvider, useAuth } from './auth';
 import LoginPage from './pages/LoginPage';
 import QuestionsPage from './pages/QuestionsPage';
+import CategoriesPage from './pages/CategoriesPage';
 import PapersPage from './pages/PapersPage';
 import ExamPage from './pages/ExamPage';
 import ReviewPage from './pages/ReviewPage';
@@ -43,6 +44,7 @@ export default function App() {
             <Route index element={<Navigate to="/papers" replace />} />
             <Route path="papers" element={<PapersPage />} />
             <Route path="questions" element={<QuestionsPage />} />
+            <Route path="categories" element={<CategoriesPage />} />
             <Route path="attempts" element={<MyAttemptsPage />} />
             <Route path="stats" element={<StatsPage />} />
             <Route path="users" element={<UsersPage />} />

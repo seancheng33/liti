@@ -42,6 +42,12 @@ function normalize(values: Record<string, string>) {
 export async function settingRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
   const { db } = opts;
 
+  // 公开信息（登录页展示站点名与公告，无需登录）
+  app.get('/public', async () => {
+    const values = await loadSettings(db);
+    return { siteName: values.site_name, siteAnnouncement: values.site_announcement };
+  });
+
   // 读取配置（登录即可读，前端展示站点名/公告/练习开关）
   app.get('/', async (request) => {
     authenticate(request);

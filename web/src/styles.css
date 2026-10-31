@@ -1,0 +1,484 @@
+/* ============================================================
+   砺题 Liti —— 全局样式
+   颜色全部来自 ThemeProvider 注入的 CSS 变量，跟随主题/深色模式
+   ============================================================ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--liti-bg);
+  color: var(--liti-text);
+  font-family: var(--liti-font, inherit);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--liti-primary-soft);
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--liti-border-strong);
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--liti-text-3);
+  background-clip: content-box;
+}
+
+/* ---------- 布局骨架 ---------- */
+.liti-shell {
+  min-height: 100vh;
+  background: var(--liti-bg);
+}
+
+.liti-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--liti-surface) 88%, transparent);
+  border-bottom: 1px solid var(--liti-border);
+  backdrop-filter: saturate(160%) blur(12px);
+}
+
+.liti-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.liti-logo {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, var(--liti-primary), color-mix(in srgb, var(--liti-primary) 55%, #7c3aed));
+  box-shadow: 0 6px 18px -8px var(--liti-primary);
+  flex: none;
+}
+
+.liti-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.liti-brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--liti-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.liti-brand-sub {
+  font-size: 12px;
+  color: var(--liti-text-3);
+  white-space: nowrap;
+}
+
+.liti-body {
+  display: flex;
+  align-items: stretch;
+}
+
+.liti-sider {
+  width: 232px;
+  flex: none;
+  padding: 14px 8px 24px;
+  border-right: 1px solid var(--liti-border);
+  background: color-mix(in srgb, var(--liti-surface) 70%, transparent);
+  min-height: calc(100vh - 64px);
+}
+
+.liti-sider .ant-menu {
+  border-inline-end: none !important;
+  background: transparent !important;
+}
+
+.liti-sider .ant-menu-item {
+  font-weight: 500;
+}
+
+.liti-sider .ant-menu-item-selected {
+  font-weight: 600;
+}
+
+.liti-sider-label {
+  padding: 16px 16px 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--liti-text-3);
+}
+
+.liti-main {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 28px 48px;
+}
+
+.liti-main-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .liti-sider {
+    display: none;
+  }
+  .liti-main {
+    padding: 16px 14px 40px;
+  }
+}
+
+.liti-mobile-menu {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .liti-mobile-menu {
+    display: block;
+  }
+}
+
+/* ---------- 页面标题 ---------- */
+.liti-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.liti-page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--liti-text);
+}
+
+.liti-page-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--liti-text-2);
+  max-width: 720px;
+}
+
+.liti-page-extra {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 页面进入动画 ---------- */
+@keyframes liti-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.liti-page {
+  animation: liti-fade-up 0.26s ease both;
+}
+
+/* ---------- 卡片 ---------- */
+.ant-card {
+  border: 1px solid var(--liti-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 18px 36px -32px rgba(15, 23, 42, 0.4);
+}
+
+.liti-stat-card .ant-card-body {
+  padding: 18px 20px;
+}
+
+.liti-stat-card .ant-statistic-title {
+  font-size: 13px;
+  color: var(--liti-text-2);
+  margin-bottom: 6px;
+}
+
+.liti-stat-card .ant-statistic-content {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* ---------- 表格 ---------- */
+.ant-table-wrapper .ant-table {
+  background: transparent;
+}
+
+.ant-table-thead > tr > th {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--liti-text-2) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom-color: var(--liti-border) !important;
+}
+
+/* 表格里的操作链接（裸 <a> 默认没有手型光标） */
+.ant-table a {
+  cursor: pointer;
+}
+
+/* 卡片内的筛选栏（与表格同卡片，用底边分隔，避免卡片套卡片） */
+.liti-filter-bar {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--liti-border);
+}
+
+/* ---------- 题目卡片 ---------- */
+.liti-question-card .ant-card-head {
+  border-bottom: 1px dashed var(--liti-border);
+}
+
+.liti-stem {
+  font-size: 16px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  color: var(--liti-text);
+}
+
+.liti-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--liti-border);
+  border-radius: 12px;
+  transition: all 0.16s ease;
+}
+
+.liti-option:hover {
+  border-color: var(--liti-primary-border);
+  background: var(--liti-primary-soft);
+}
+
+.liti-option-label {
+  font-weight: 700;
+  color: var(--liti-text-2);
+  min-width: 18px;
+}
+
+/* ---------- 答题卡 ---------- */
+.liti-answer-sheet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.liti-sheet-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+/* ---------- 图片 ---------- */
+.liti-image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.liti-image-thumb {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--liti-border);
+  background: var(--liti-surface-2);
+  line-height: 0;
+}
+
+.liti-image-thumb img {
+  display: block;
+  max-width: 220px;
+  max-height: 160px;
+  object-fit: contain;
+}
+
+.liti-image-thumb-sm img {
+  max-width: 120px;
+  max-height: 90px;
+}
+
+.liti-image-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.liti-upload-tile {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 68px;
+  border-radius: 10px;
+  border: 1px dashed var(--liti-border-strong);
+  color: var(--liti-text-3);
+  background: var(--liti-surface-2);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.liti-upload-tile:hover {
+  color: var(--liti-primary);
+  border-color: var(--liti-primary);
+}
+
+/* ---------- 登录页 ---------- */
+.liti-login {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: 100vh;
+  background: var(--liti-bg);
+}
+
+.liti-login-aside {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px;
+  color: #fff;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 15% 10%, color-mix(in srgb, var(--liti-primary) 88%, #fff) 0%, transparent 55%),
+    linear-gradient(150deg, var(--liti-primary), color-mix(in srgb, var(--liti-primary) 35%, #17123a));
+}
+
+.liti-login-aside::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -30% -20%;
+  height: 60%;
+  background: radial-gradient(60% 60% at 50% 50%, rgba(255, 255, 255, 0.22), transparent 70%);
+  pointer-events: none;
+}
+
+.liti-login-aside h1 {
+  margin: 0 0 12px;
+  font-size: 34px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.liti-login-aside p {
+  margin: 0;
+  max-width: 380px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.liti-login-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+
+.liti-login-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.liti-login-form {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.liti-login-card {
+  width: 100%;
+  max-width: 380px;
+}
+
+@media (max-width: 860px) {
+  .liti-login {
+    grid-template-columns: 1fr;
+  }
+  .liti-login-aside {
+    display: none;
+  }
+}
+
+/* ---------- 空状态/加载 ---------- */
+.liti-loading {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  color: var(--liti-text-3);
+}
+
+/* ---------- 小工具类 ---------- */
+.liti-muted {
+  color: var(--liti-text-3);
+}
+
+.liti-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.liti-spacer-16 {
+  height: 16px;
+}

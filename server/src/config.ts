@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defaultSqlitePath } from './paths.js';
+import { defaultSqlitePath, defaultUploadDir } from './paths.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -7,6 +7,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DB_DRIVER: z.enum(['sqlite', 'mysql']).default('sqlite'),
   SQLITE_PATH: z.string().default(defaultSqlitePath),
+  UPLOAD_DIR: z.string().default(defaultUploadDir),
   MYSQL_URL: z.string().optional(),
   SESSION_SECRET: z.string().min(16).default('dev-secret-change-me-please'),
   SESSION_TTL_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60 * 1000),

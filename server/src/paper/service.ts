@@ -7,8 +7,8 @@ import { fisherYates, MAX_PAPER_QUESTIONS, validatePaperInput, type PaperInput, 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
 export interface SampleRule {
+  /** 留空表示从整个题库抽 */
   categoryId?: number;
-  difficulty?: number;
   count: number;
 }
 
@@ -18,11 +18,11 @@ export async function sampleQuestionIds(db: AnyDb, rules: SampleRule[]): Promise
   for (const rule of rules) {
     let q = db.selectFrom('question').select('id').where('status', '=', 'active');
     if (rule.categoryId != null) q = q.where('category_id', '=', rule.categoryId);
-    if (rule.difficulty != null) q = q.where('difficulty', '=', rule.difficulty);
     const ids = (await q.execute()).map((r) => r.id).filter((id) => !pickedSet.has(id));
 
     if (ids.length < rule.count) {
-      throw new HttpError(400, `题目不足：需抽 ${rule.count} 题，但仅剩 ${ids.length} 题可抽`);
+      const scope = rule.categoryId != null ? '该分类' : '题库';
+      throw new HttpError(400, `${scope}题目不足：需抽 ${rule.count} 题，但仅剩 ${ids.length} 题可抽`);
     }
     for (const id of fisherYates(ids).slice(0, rule.count)) {
       picked.push(id);
@@ -78,7 +78,6 @@ export async function createPaper(db: Db, input: PaperInput, userId: number | nu
   if (input.mode === 'random') {
     const rules: SampleRule[] = (input.randomRules ?? []).map((r: RandomRule) => ({
       categoryId: r.categoryId ?? undefined,
-      difficulty: r.difficulty ?? undefined,
       count: r.count,
     }));
     questionIds = await sampleQuestionIds(db, rules);

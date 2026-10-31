@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Modal, Radio, Result, Space, Typography, message, theme as antdTheme } from 'antd';
+import { Button, Card, Checkbox, Modal, Progress, Radio, Result, Space, Tag, Typography, message, theme as antdTheme } from 'antd';
+import { ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { ImageGallery } from '../components/ImageUpload';
 import type { AttemptReview } from '../types';
+
+/** 选项配图：阻止点击冒泡，避免误触发选择 */
+function OptionImages({ images }: { images?: string[] }) {
+  if (!images?.length) return null;
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <ImageGallery images={images} size="sm" />
+    </div>
+  );
+}
 
 export default function ExamPage() {
   const { attemptId } = useParams();
@@ -10,7 +22,7 @@ export default function ExamPage() {
   const { token } = antdTheme.useToken();
   const [review, setReview] = useState<AttemptReview | null>(null);
   const [answers, setAnswers] = useState<Record<number, number[]>>({});
-  const [current, setCurrent] = useState(0); // 当前题索引（0-based）
+  const [current, setCurrent] = useState(0);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
   const [violations, setViolations] = useState(0);
@@ -109,35 +121,59 @@ export default function ExamPage() {
     }
   }
 
+  function confirmSubmit() {
+    const unanswered = review ? review.items.length - Object.values(answers).filter((v) => v.length > 0).length : 0;
+    Modal.confirm({
+      title: '确认交卷？',
+      content: unanswered > 0 ? `还有 ${unanswered} 题没有作答，交卷后不能修改。` : '所有题目都已作答，交卷后不能修改。',
+      okText: '确认交卷',
+      cancelText: '再检查一下',
+      okButtonProps: { danger: true },
+      onOk: handleSubmit,
+    });
+  }
+
   if (!review) {
-    return <div style={{ padding: 40 }}>加载中…</div>;
+    return <div className="liti-loading">加载中…</div>;
   }
   if (review.status !== 'in_progress') {
-    return (
-      <Result status="info" title="答卷已结束" extra={<Button onClick={() => navigate(`/review/${attemptId}`)}>查看结果</Button>} />
-    );
+    return <Result status="info" title="答卷已结束" extra={<Button onClick={() => navigate(`/review/${attemptId}`)}>查看结果</Button>} />;
   }
 
   const mins = Math.floor((remaining ?? 0) / 60);
   const secs = String((remaining ?? 0) % 60).padStart(2, '0');
+  const urgent = (remaining ?? 0) <= 300;
   const items = review.items;
   const item = items[current];
   const answeredCount = items.filter((it) => (answers[it.questionId] ?? []).length > 0).length;
+  const percent = items.length ? Math.round((answeredCount / items.length) * 100) : 0;
 
   return (
-    <div>
-      {/* 顶部信息卡片 */}
+    <div className="liti-page">
+      {/* 顶部信息卡 */}
       <Card>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {review.paperTitle}
-          </Typography.Title>
-          <Space size="large" wrap>
-            <Typography.Text strong>
-              剩余时间：{mins}:{secs}
-            </Typography.Text>
-            <Typography.Text>已答：{answeredCount}/{items.length}</Typography.Text>
-            <Typography.Text type={violations > 0 ? 'danger' : 'secondary'}>违规次数：{violations}/3</Typography.Text>
+        <Space style={{ width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }} size={16}>
+          <div>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {review.paperTitle}
+            </Typography.Title>
+            <Space size={16} style={{ marginTop: 6 }} wrap>
+              <Typography.Text type={urgent ? 'danger' : 'secondary'}>
+                <ClockCircleOutlined /> 剩余时间 {mins}:{secs}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                已答 {answeredCount}/{items.length} 题
+              </Typography.Text>
+              <Typography.Text type={violations > 0 ? 'danger' : 'secondary'}>
+                <FieldTimeOutlined /> 违规 {violations}/3
+              </Typography.Text>
+            </Space>
+          </div>
+          <Space size={16}>
+            <Progress type="circle" size={54} percent={percent} strokeColor={token.colorPrimary} />
+            <Button type="primary" danger size="large" loading={submitting} onClick={confirmSubmit}>
+              交卷
+            </Button>
           </Space>
         </Space>
       </Card>
@@ -145,62 +181,87 @@ export default function ExamPage() {
       {/* 当前题目卡片 */}
       <Card
         key={item.questionId}
-        title={`第 ${current + 1} 题（${item.type === 'single' ? '单选' : '多选'}）`}
-        style={{ marginTop: 12 }}
+        className="liti-question-card"
+        style={{ marginTop: 16 }}
+        title={
+          <Space>
+            <Tag color="blue">第 {current + 1} 题</Tag>
+            <span>{item.type === 'single' ? '单选题' : '多选题'}</span>
+            <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
+              （{(answers[item.questionId] ?? []).length ? '已作答' : '未作答'}）
+            </Typography.Text>
+          </Space>
+        }
       >
-        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', fontSize: 16 }}>{item.stem}</Typography.Paragraph>
-        {item.type === 'single' ? (
-          <Radio.Group
-            value={answers[item.questionId]?.[0]}
-            onChange={(e) => saveAnswer(item.questionId, [e.target.value])}
-          >
-            <Space direction="vertical">
+        {item.stem ? <div className="liti-stem">{item.stem}</div> : null}
+        <ImageGallery images={item.images} />
+
+        <div style={{ marginTop: 16 }}>
+          {item.type === 'single' ? (
+            <Radio.Group
+              value={answers[item.questionId]?.[0]}
+              onChange={(e) => saveAnswer(item.questionId, [e.target.value])}
+              style={{ width: '100%' }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size={10}>
+                {item.options.map((o, i) => (
+                  <Radio key={o.id} value={o.id} className="liti-option" style={{ marginInlineStart: 0 }}>
+                    <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                      <span>
+                        <span className="liti-option-label">{String.fromCharCode(65 + i)}.</span> {o.content}
+                      </span>
+                      <OptionImages images={o.images} />
+                    </Space>
+                  </Radio>
+                ))}
+              </Space>
+            </Radio.Group>
+          ) : (
+            <Space direction="vertical" style={{ width: '100%' }} size={10}>
               {item.options.map((o, i) => (
-                <Radio key={o.id} value={o.id}>
-                  {String.fromCharCode(65 + i)}. {o.content}
-                </Radio>
+                <Checkbox
+                  key={o.id}
+                  className="liti-option"
+                  checked={(answers[item.questionId] ?? []).includes(o.id)}
+                  onChange={(e) => {
+                    const cur = answers[item.questionId] ?? [];
+                    const next = e.target.checked ? [...cur, o.id] : cur.filter((x) => x !== o.id);
+                    saveAnswer(item.questionId, next);
+                  }}
+                >
+                  <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                    <span>
+                      <span className="liti-option-label">{String.fromCharCode(65 + i)}.</span> {o.content}
+                    </span>
+                    <OptionImages images={o.images} />
+                  </Space>
+                </Checkbox>
               ))}
             </Space>
-          </Radio.Group>
-        ) : (
-          <Space direction="vertical">
-            {item.options.map((o, i) => (
-              <Checkbox
-                key={o.id}
-                checked={(answers[item.questionId] ?? []).includes(o.id)}
-                onChange={(e) => {
-                  const cur = answers[item.questionId] ?? [];
-                  const next = e.target.checked ? [...cur, o.id] : cur.filter((x) => x !== o.id);
-                  saveAnswer(item.questionId, next);
-                }}
-              >
-                {String.fromCharCode(65 + i)}. {o.content}
-              </Checkbox>
-            ))}
-          </Space>
-        )}
+          )}
+        </div>
       </Card>
 
-      {/* 底部：翻页 + 题号导航 */}
-      <Card style={{ marginTop: 12 }}>
+      {/* 底部：翻页 + 答题卡 */}
+      <Card style={{ marginTop: 16 }}>
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Space>
+          <Space wrap>
             <Button disabled={current === 0} onClick={() => setCurrent(current - 1)}>
               上一题
             </Button>
-            <Button type="primary" disabled={current === items.length - 1} onClick={() => setCurrent(current + 1)}>
+            <Button disabled={current === items.length - 1} onClick={() => setCurrent(current + 1)}>
               下一题
             </Button>
-            <Button type="primary" danger size="large" loading={submitting} onClick={() => handleSubmit()}>
-              交卷
-            </Button>
+            <Typography.Text type="secondary">
+              {current + 1} / {items.length}
+            </Typography.Text>
           </Space>
 
           <div>
-            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 10 }}>
               答题卡（点击题号跳转）
             </Typography.Text>
-            <Space wrap size={[8, 8]}>
+            <div className="liti-answer-sheet">
               {items.map((it, idx) => {
                 const answered = (answers[it.questionId] ?? []).length > 0;
                 const isCurrent = idx === current;
@@ -211,13 +272,11 @@ export default function ExamPage() {
                     size="small"
                     onClick={() => setCurrent(idx)}
                     style={{
+                      width: 34,
+                      height: 34,
                       background: answered ? token.colorSuccess : token.colorFillSecondary,
                       color: answered ? '#fff' : token.colorText,
-                      borderColor: isCurrent
-                        ? token.colorPrimary
-                        : answered
-                          ? token.colorSuccess
-                          : token.colorBorder,
+                      borderColor: isCurrent ? token.colorPrimary : answered ? token.colorSuccess : token.colorBorder,
                       borderWidth: isCurrent ? 2 : 1,
                       fontWeight: isCurrent ? 700 : 400,
                     }}
@@ -226,11 +285,17 @@ export default function ExamPage() {
                   </Button>
                 );
               })}
-            </Space>
-            <div style={{ marginTop: 8 }}>
+            </div>
+            <div style={{ marginTop: 12 }}>
               <Space size="large">
-                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: token.colorSuccess, borderRadius: '50%', marginRight: 4 }} />已答</span>
-                <span><span style={{ display: 'inline-block', width: 12, height: 12, background: token.colorFillSecondary, border: `1px solid ${token.colorBorder}`, borderRadius: '50%', marginRight: 4 }} />未答</span>
+                <span>
+                  <span className="liti-sheet-dot" style={{ background: token.colorSuccess }} />
+                  已答
+                </span>
+                <span>
+                  <span className="liti-sheet-dot" style={{ background: token.colorFillSecondary, border: `1px solid ${token.colorBorder}` }} />
+                  未答
+                </span>
               </Space>
             </div>
           </div>

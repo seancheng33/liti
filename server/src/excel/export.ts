@@ -2,7 +2,11 @@ import ExcelJS from 'exceljs';
 import type { Db } from '../db/index.js';
 
 const STATUS_LABEL: Record<string, string> = { in_progress: '进行中', submitted: '已交卷', expired: '已超时' };
-const REASON_LABEL: Record<string, string> = { manual: '手动', violation: '违规', timeout: '超时' };
+export const REASON_LABEL: Record<string, string> = {
+  manual: '正常交卷',
+  timeout: '异常：超时交卷',
+  violation: '异常：违规强制交卷',
+};
 
 function fmt(ms: number): string {
   const d = new Date(ms);

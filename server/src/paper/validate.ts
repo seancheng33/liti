@@ -2,7 +2,6 @@ import type { ReviewMode } from '../db/types.js';
 
 export interface RandomRule {
   categoryId?: number | null;
-  difficulty?: number | null;
   count: number;
 }
 

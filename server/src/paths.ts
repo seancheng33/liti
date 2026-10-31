@@ -6,3 +6,5 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const workspaceRoot = resolve(here, '..', '..');
 export const webDistPath = join(workspaceRoot, 'web', 'dist');
 export const defaultSqlitePath = join(workspaceRoot, 'data', 'app.db');
+/** 题目配图等上传文件目录（Docker 里 /app/data 挂了 volume，会一起持久化） */
+export const defaultUploadDir = join(workspaceRoot, 'data', 'uploads');

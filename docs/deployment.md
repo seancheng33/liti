@@ -1,7 +1,7 @@
 # 部署文档
 
 > 砺题 Liti 部署指南
-> 更新：2026-10-30
+> 更新：2026-10-31
 
 本文档说明如何把砺题 Liti 部署到局域网环境，供多人访问使用。
 
@@ -107,8 +107,21 @@ netsh advfirewall firewall add rule name="Liti" dir=in action=allow protocol=TCP
 | `SESSION_SECRET` | 会话密钥（生产务必改为强随机值） | 开发默认值 |
 | `SESSION_TTL_MS` | 会话有效期（毫秒） | 7 天 |
 | `AUTH_PROVIDERS` | `local` / `local,oidc` | `local` |
+| `UPLOAD_DIR` | 图片上传落盘目录 | `<项目>/data/uploads` |
 
-### 8.1 切换 MySQL
+### 8.1 题目配图（上传接口与静态目录）
+
+题目题干、选项都可以配图，走的是「前端转 base64 → 后端落盘 → 静态托管」这条链路：
+
+- 上传接口：`POST /api/uploads`，请求体 `{ "data": "data:image/png;base64,..." }`，返回 `{ url, size }`
+- 限制：单张 ≤ 4 MB，仅 `png` / `jpeg` / `webp` / `gif`
+- 落盘路径：`$UPLOAD_DIR/questions/<yyyymm>-<uuid>.<ext>`
+- 访问路径：`/uploads/questions/...`，由服务自身静态托管（`Cache-Control` 7 天）
+
+> 备份时别只拷数据库：`data/app.db` 和 `data/uploads/` 要一起拷，否则图片题会变成空图。
+> 用 Docker 部署时两者都在 `/app/data` 这个 volume 里，挂载一个卷即可。
+
+### 8.2 切换 MySQL
 
 ```bash
 # 1. 在 MySQL 中建库
@@ -118,9 +131,9 @@ netsh advfirewall firewall add rule name="Liti" dir=in action=allow protocol=TCP
 DB_DRIVER=mysql MYSQL_URL="mysql://user:pass@127.0.0.1:3306/liti" pnpm start
 ```
 
-> ⚠️ MySQL 接入代码已就绪，但尚未在真实 MySQL 上做冒烟验证，生产前请先补跑一次迁移与 CRUD 冒烟。
+> 已在真实 MySQL 8 上跑过迁移与全量功能冒烟（含组卷、答题、判分、Excel 导入导出、统计），中文 utf8mb4 存储正常。
 
-### 8.2 接入 SSO（OIDC）
+### 8.3 接入 SSO（OIDC）
 
 配置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI`，并将 `AUTH_PROVIDERS` 设为 `local,oidc`（或 `oidc` 强制 SSO）。
 
@@ -168,6 +181,8 @@ docker run -d --name liti -p 8080:8080 \
   -v liti-data:/app/data \
   liti:latest
 ```
+
+`/app/data` 同时存 SQLite 文件与题目配图（`/app/data/uploads`），一个卷就够。
 
 首次运行需初始化账号（容器内执行 seed）：
 

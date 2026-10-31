@@ -8,7 +8,6 @@ import * as service from './service.js';
 
 const ruleSchema = z.object({
   categoryId: z.number().int().nullable().optional(),
-  difficulty: z.number().int().min(1).max(3).nullable().optional(),
   count: z.number().int().min(1),
 });
 const paperSchema = z.object({
@@ -28,10 +27,9 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
   app.post('/random-preview', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
-    const body = request.body as { randomRules?: { categoryId?: number | null; difficulty?: number | null; count: number }[] };
+    const body = request.body as { randomRules?: { categoryId?: number | null; count: number }[] };
     const rules = (body.randomRules ?? []).map((r) => ({
       categoryId: r.categoryId ?? undefined,
-      difficulty: r.difficulty ?? undefined,
       count: r.count,
     }));
     return service.previewRandom(db, rules);

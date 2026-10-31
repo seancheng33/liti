@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, theme as antdTheme } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography, theme as antdTheme } from 'antd';
 import {
+  AppstoreOutlined,
+  BarChartOutlined,
   BgColorsOutlined,
   CheckOutlined,
+  FileTextOutlined,
   LogoutOutlined,
+  ProfileOutlined,
+  ReadOutlined,
+  SettingOutlined,
+  TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import { useTheme } from '../theme';
-import type { SiteSettings } from '../types';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', teacher: '教师', student: '学生' };
+const ROLE_COLOR: Record<string, string> = { admin: 'red', teacher: 'blue', student: 'green' };
 
 export default function AppLayout() {
   const { user, logout, applyTheme } = useAuth();
@@ -24,7 +31,7 @@ export default function AppLayout() {
 
   useEffect(() => {
     api
-      .get<SiteSettings>('/api/settings')
+      .get<{ siteName: string }>('/api/settings/public')
       .then((s) => {
         const name = s.siteName || '砺题 Liti';
         setSiteName(name);
@@ -33,22 +40,32 @@ export default function AppLayout() {
       .catch(() => {});
   }, []);
 
+  const isManager = !!user && user.role !== 'student';
+  const isAdmin = user?.role === 'admin';
+
   const items = [
-    { key: '/papers', label: '试卷' },
-    { key: '/attempts', label: '我的答卷' },
-    ...(user && user.role !== 'student'
+    { key: '/papers', icon: <FileTextOutlined />, label: '试卷' },
+    { key: '/attempts', icon: <ProfileOutlined />, label: '我的答卷' },
+    ...(isManager
       ? [
-          { key: '/questions', label: '题库' },
-          { key: '/stats', label: '统计' },
+          { key: '/questions', icon: <ReadOutlined />, label: '题库' },
+          { key: '/categories', icon: <AppstoreOutlined />, label: '分类管理' },
+          { key: '/stats', icon: <BarChartOutlined />, label: '统计' },
         ]
       : []),
-    ...(user && user.role === 'admin'
+    ...(isAdmin
       ? [
-          { key: '/users', label: '用户管理' },
-          { key: '/settings', label: '网站管理' },
+          { key: '/users', icon: <TeamOutlined />, label: '用户管理' },
+          { key: '/settings', icon: <SettingOutlined />, label: '网站管理' },
         ]
       : []),
   ];
+
+  const selectedKey = location.pathname.startsWith('/exam')
+    ? '/papers'
+    : location.pathname.startsWith('/review')
+      ? '/attempts'
+      : location.pathname;
 
   const themeMenu = {
     items: presets.map((p) => ({
@@ -60,7 +77,7 @@ export default function AppLayout() {
               display: 'inline-block',
               width: 14,
               height: 14,
-              borderRadius: 3,
+              borderRadius: 4,
               background: p.swatch,
               border: `1px solid ${token.colorBorderSecondary}`,
             }}
@@ -76,9 +93,25 @@ export default function AppLayout() {
 
   const userMenu = {
     items: [
-      { key: 'profile', label: <Space><UserOutlined />个人设置</Space> },
+      {
+        key: 'profile',
+        label: (
+          <Space>
+            <UserOutlined />
+            个人设置
+          </Space>
+        ),
+      },
       { type: 'divider' as const },
-      { key: 'logout', label: <Space><LogoutOutlined />退出登录</Space> },
+      {
+        key: 'logout',
+        label: (
+          <Space>
+            <LogoutOutlined />
+            退出登录
+          </Space>
+        ),
+      },
     ],
     onClick: async ({ key }: { key: string }) => {
       if (key === 'profile') navigate('/profile');
@@ -90,55 +123,65 @@ export default function AppLayout() {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Layout.Header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: token.colorPrimary,
-          paddingInline: 24,
-        }}
-      >
-        <Typography.Title level={4} style={{ color: '#fff', margin: 0 }}>
-          {siteName}
-        </Typography.Title>
+    <div className="liti-shell">
+      <header className="liti-header">
+        <div className="liti-brand">
+          <div className="liti-logo">砺</div>
+          <div className="liti-brand-text">
+            <span className="liti-brand-name">{siteName}</span>
+            <span className="liti-brand-sub">千题磨一剑</span>
+          </div>
+        </div>
+
         <Space size={12}>
           <Dropdown menu={themeMenu} trigger={['click']} placement="bottomRight">
-            <Button
-              size="small"
-              ghost
-              icon={<BgColorsOutlined />}
-              style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
-            >
+            <Button icon={<BgColorsOutlined />} shape="round">
               {presets.find((p) => p.key === themeKey)?.name ?? '主题'}
             </Button>
           </Dropdown>
           <Dropdown menu={userMenu} trigger={['click']} placement="bottomRight">
-            <Space style={{ color: '#fff', cursor: 'pointer' }}>
-              <Avatar size="small" style={{ background: 'rgba(255,255,255,0.25)' }} icon={<UserOutlined />} />
-              <span>
-                {user?.displayName}（{ROLE_LABEL[user?.role ?? ''] ?? user?.role}）
-              </span>
+            <Space style={{ cursor: 'pointer' }} size={8}>
+              <Avatar size={32} style={{ background: token.colorPrimary }} icon={<UserOutlined />} />
+              <Space size={6}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{user?.displayName}</span>
+                <Tag color={ROLE_COLOR[user?.role ?? '']} style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '18px' }}>
+                  {ROLE_LABEL[user?.role ?? ''] ?? user?.role}
+                </Tag>
+              </Space>
             </Space>
           </Dropdown>
         </Space>
-      </Layout.Header>
-      <Layout>
-        <Layout.Sider width={180} theme={isDark ? 'dark' : 'light'}>
+      </header>
+
+      <div className="liti-body">
+        <aside className="liti-sider">
+          <div className="liti-sider-label">导航</div>
           <Menu
             mode="inline"
             theme={isDark ? 'dark' : 'light'}
-            selectedKeys={[location.pathname]}
+            selectedKeys={[selectedKey]}
             items={items}
             onClick={({ key }) => navigate(key)}
-            style={{ height: '100%' }}
           />
-        </Layout.Sider>
-        <Layout.Content style={{ padding: 24, background: token.colorBgLayout }}>
-          <Outlet />
+        </aside>
+
+        <Layout.Content className="liti-main">
+          {/* 窄屏时的横向导航 */}
+          <div className="liti-mobile-menu">
+            <Menu
+              mode="horizontal"
+              selectedKeys={[selectedKey]}
+              items={items}
+              onClick={({ key }) => navigate(key)}
+              style={{ borderBottom: 'none', marginBottom: 12 }}
+            />
+          </div>
+
+          <div className="liti-main-inner" key={location.pathname}>
+            <Outlet />
+          </div>
         </Layout.Content>
-      </Layout>
-    </Layout>
+      </div>
+    </div>
   );
 }

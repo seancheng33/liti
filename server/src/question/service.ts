@@ -2,7 +2,8 @@ import type { Kysely, Transaction } from 'kysely';
 import type { Database } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
-import { contentHash, normalizeLoose, validateQuestionDraft, type QuestionDraft } from './validate.js';
+import { parseImageList, serializeImageList } from '../media.js';
+import { contentHash, normalizeDraftImages, normalizeLoose, validateQuestionDraft, type QuestionDraft } from './validate.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
@@ -17,9 +18,11 @@ export interface DuplicateHit {
 /**
  * 查重：先按 content_hash 精确命中；未命中再用宽松归一化比对一次，
  * 把「同一题换了标点/空格」也算重复。
- * 说明：宽松比对会拉一次 id/stem/type（题库规模在万级以内，可接受；仅在新增/编辑/导入时触发）。
+ * 题干为空（纯图片题）时不做查重，否则所有图片题都会撞同一个哈希。
  */
 export async function findDuplicate(db: Db, stem: string, excludeId?: number): Promise<DuplicateHit | null> {
+  if (!stem || !stem.trim()) return null;
+
   const hash = contentHash(stem);
   let exactQuery = db
     .selectFrom('question')
@@ -47,17 +50,18 @@ export function duplicateError(dup: DuplicateHit): HttpError {
 
 async function insertQuestion(db: AnyDb, draft: QuestionDraft, userId: number | null): Promise<number> {
   const now = Date.now();
+  const stem = draft.stem.trim();
   const res = await db
     .insertInto('question')
     .values({
       type: draft.type,
-      stem: draft.stem.trim(),
+      stem,
+      images: serializeImageList(draft.images ?? []),
       explanation: draft.explanation?.trim() || null,
       category_id: draft.categoryId ?? null,
-      difficulty: draft.difficulty ?? 2,
       tags: draft.tags && draft.tags.length ? JSON.stringify(draft.tags) : null,
       status: 'active',
-      content_hash: contentHash(draft.stem),
+      content_hash: contentHash(stem || `image:${(draft.images ?? []).join(',')}`),
       created_by: userId,
       created_at: now,
       updated_at: now,
@@ -67,7 +71,8 @@ async function insertQuestion(db: AnyDb, draft: QuestionDraft, userId: number | 
 
   const options = draft.options.map((o, i) => ({
     question_id: questionId,
-    content: o.content.trim(),
+    content: o.content?.trim() ?? '',
+    images: serializeImageList(o.images ?? []),
     is_correct: o.isCorrect ? 1 : 0,
     sort_order: i,
   }));
@@ -79,10 +84,11 @@ async function insertQuestion(db: AnyDb, draft: QuestionDraft, userId: number | 
 
 export async function createQuestion(
   db: Db,
-  draft: QuestionDraft,
+  draftInput: QuestionDraft,
   userId: number | null,
   opts: { allowDuplicate?: boolean } = {},
 ): Promise<number> {
+  const draft = normalizeDraftImages(draftInput);
   const errors = validateQuestionDraft(draft);
   if (errors.length) throw new HttpError(400, errors.join('；'));
 
@@ -97,9 +103,10 @@ export async function createQuestion(
 export async function updateQuestion(
   db: Db,
   id: number,
-  draft: QuestionDraft,
+  draftInput: QuestionDraft,
   opts: { allowDuplicate?: boolean } = {},
 ): Promise<void> {
+  const draft = normalizeDraftImages(draftInput);
   const errors = validateQuestionDraft(draft);
   if (errors.length) throw new HttpError(400, errors.join('；'));
 
@@ -112,16 +119,17 @@ export async function updateQuestion(
     const existing = await trx.selectFrom('question').select('id').where('id', '=', id).executeTakeFirst();
     if (!existing) throw new HttpError(404, '题目不存在');
 
+    const stem = draft.stem.trim();
     await trx
       .updateTable('question')
       .set({
         type: draft.type,
-        stem: draft.stem.trim(),
+        stem,
+        images: serializeImageList(draft.images ?? []),
         explanation: draft.explanation?.trim() || null,
         category_id: draft.categoryId ?? null,
-        difficulty: draft.difficulty ?? 2,
         tags: draft.tags && draft.tags.length ? JSON.stringify(draft.tags) : null,
-        content_hash: contentHash(draft.stem),
+        content_hash: contentHash(stem || `image:${(draft.images ?? []).join(',')}`),
         updated_at: Date.now(),
       })
       .where('id', '=', id)
@@ -130,7 +138,8 @@ export async function updateQuestion(
     await trx.deleteFrom('question_option').where('question_id', '=', id).execute();
     const options = draft.options.map((o, i) => ({
       question_id: id,
-      content: o.content.trim(),
+      content: o.content?.trim() ?? '',
+      images: serializeImageList(o.images ?? []),
       is_correct: o.isCorrect ? 1 : 0,
       sort_order: i,
     }));
@@ -151,14 +160,14 @@ export interface QuestionDetail {
   id: number;
   type: string;
   stem: string;
+  images: string[];
   explanation: string | null;
   category_id: number | null;
-  difficulty: number;
   tags: string[];
   status: string;
   created_at: number;
   updated_at: number;
-  options: { id: number; content: string; isCorrect: boolean; sortOrder: number }[];
+  options: { id: number; content: string; images: string[]; isCorrect: boolean; sortOrder: number }[];
 }
 
 export async function getQuestionDetail(db: Db, id: number): Promise<QuestionDetail | null> {
@@ -176,9 +185,9 @@ export async function getQuestionDetail(db: Db, id: number): Promise<QuestionDet
     id: q.id,
     type: q.type,
     stem: q.stem,
+    images: parseImageList(q.images),
     explanation: q.explanation,
     category_id: q.category_id,
-    difficulty: q.difficulty,
     tags: q.tags ? (JSON.parse(q.tags) as string[]) : [],
     status: q.status,
     created_at: q.created_at,
@@ -186,6 +195,7 @@ export async function getQuestionDetail(db: Db, id: number): Promise<QuestionDet
     options: options.map((o) => ({
       id: o.id,
       content: o.content,
+      images: parseImageList(o.images),
       isCorrect: o.is_correct === 1,
       sortOrder: o.sort_order,
     })),
@@ -195,24 +205,33 @@ export async function getQuestionDetail(db: Db, id: number): Promise<QuestionDet
 export interface ListFilter {
   keyword?: string;
   categoryId?: number;
-  difficulty?: number;
   type?: string;
   status?: string;
   page?: number;
   pageSize?: number;
 }
 
+export interface ListItem {
+  id: number;
+  type: string;
+  stem: string;
+  images: string[];
+  status: string;
+  category_id: number | null;
+  option_count: number;
+  created_at: number;
+}
+
 export async function listQuestions(
   db: Db,
   filter: ListFilter,
-): Promise<{ items: { id: number; type: string; stem: string; difficulty: number; status: string; category_id: number | null; option_count: number; created_at: number }[]; total: number }> {
+): Promise<{ items: ListItem[]; total: number }> {
   const page = Math.max(1, filter.page ?? 1);
   const pageSize = Math.min(Math.max(1, filter.pageSize ?? 20), 100);
 
   let base = db.selectFrom('question');
   if (filter.keyword) base = base.where('stem', 'like', `%${filter.keyword}%`);
   if (filter.categoryId != null) base = base.where('category_id', '=', filter.categoryId);
-  if (filter.difficulty != null) base = base.where('difficulty', '=', filter.difficulty);
   if (filter.type) base = base.where('type', '=', filter.type as 'single' | 'multiple');
   if (filter.status) base = base.where('status', '=', filter.status as 'active' | 'archived');
 
@@ -245,7 +264,7 @@ export async function listQuestions(
       id: q.id,
       type: q.type,
       stem: q.stem,
-      difficulty: q.difficulty,
+      images: parseImageList(q.images),
       status: q.status,
       category_id: q.category_id,
       option_count: countMap.get(q.id) ?? 0,

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Card, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import PageHeader from '../components/PageHeader';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', teacher: '教师', student: '学生' };
 const ROLE_COLOR: Record<string, string> = { admin: 'red', teacher: 'blue', student: 'green' };
@@ -149,22 +150,28 @@ export default function UsersPage() {
   ];
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button
-          icon={<PlusOutlined />}
-          type="primary"
-          onClick={() => {
-            setCreateOpen(true);
-            createForm.resetFields();
-            createForm.setFieldsValue({ role: 'student' });
-          }}
-        >
-          新建用户
-        </Button>
-      </Space>
+    <div className="liti-page">
+      <PageHeader
+        title="用户管理"
+        description="创建账号、调整角色、重置密码。删除用户会一并清理其答卷数据。"
+        extra={
+          <Button
+            icon={<PlusOutlined />}
+            type="primary"
+            onClick={() => {
+              setCreateOpen(true);
+              createForm.resetFields();
+              createForm.setFieldsValue({ role: 'student' });
+            }}
+          >
+            新建用户
+          </Button>
+        }
+      />
 
-      <Table rowKey="id" columns={columns} dataSource={data} loading={loading} pagination={false} />
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table rowKey="id" columns={columns} dataSource={data} loading={loading} pagination={false} />
+      </Card>
 
       {/* 新建用户 */}
       <Modal title="新建用户" open={createOpen} onOk={onCreate} onCancel={() => setCreateOpen(false)}>

@@ -4,6 +4,7 @@ import { CheckOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../theme';
+import PageHeader from '../components/PageHeader';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', teacher: '教师', student: '学生' };
 const ROLE_COLOR: Record<string, string> = { admin: 'red', teacher: 'blue', student: 'green' };
@@ -52,7 +53,8 @@ export default function ProfilePage() {
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div className="liti-page" style={{ maxWidth: 880 }}>
+      <PageHeader title="个人设置" description="修改显示名、挑选喜欢的界面主题，或者换个密码。" />
       <Card title="基本信息" style={{ marginBottom: 16 }}>
         <Descriptions column={2} size="small" style={{ marginBottom: 16 }}>
           <Descriptions.Item label="用户名">{user?.username}</Descriptions.Item>

@@ -2,6 +2,7 @@ import type { Kysely, Selectable, Transaction } from 'kysely';
 import type { Database, AttemptRow } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
+import { parseImageList } from '../media.js';
 import { sampleQuestionIds, type SampleRule } from '../paper/service.js';
 import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
 
@@ -295,7 +296,7 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
   const questions = questionIds.length ? await db.selectFrom('question').selectAll().where('id', 'in', questionIds).execute() : [];
   const qMap = new Map(questions.map((q) => [q.id, q]));
   const options = questionIds.length ? await db.selectFrom('question_option').selectAll().where('question_id', 'in', questionIds).execute() : [];
-  const optMap = new Map<number, { id: number; content: string; is_correct: number }[]>();
+  const optMap = new Map<number, { id: number; content: string; is_correct: number; images: string | null }[]>();
   for (const o of options) {
     if (!optMap.has(o.question_id)) optMap.set(o.question_id, []);
     optMap.get(o.question_id)!.push(o);
@@ -327,10 +328,12 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
         questionId: item.question_id,
         type: q?.type,
         stem: q?.stem,
+        images: parseImageList(q?.images),
         explanation: reveal ? (q?.explanation ?? null) : null,
         options: optionOrder.map((oid) => ({
           id: oid,
           content: optById.get(oid)?.content ?? '',
+          images: parseImageList(optById.get(oid)?.images),
           isCorrect: reveal ? optById.get(oid)?.is_correct === 1 : null,
         })),
         selectedOptionIds: selected,

@@ -12,7 +12,6 @@ export const TEMPLATE_HEADERS = [
   '正确答案',
   '解析',
   '分类',
-  '难度',
   '标签',
 ];
 
@@ -35,7 +34,6 @@ export async function buildTemplate(): Promise<Buffer> {
     正确答案: 'B',
     解析: '1 + 1 = 2',
     分类: '',
-    难度: '易',
     标签: '数学,入门',
   });
 

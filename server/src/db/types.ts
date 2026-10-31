@@ -40,9 +40,10 @@ export interface QuestionRow {
   id: Generated<number>;
   type: QuestionType;
   stem: string;
+  /** 题干配图，JSON 数组字符串，元素为 /uploads/... 相对地址 */
+  images: string | null;
   explanation: string | null;
   category_id: number | null;
-  difficulty: number;
   tags: string | null;
   status: 'active' | 'archived';
   content_hash: string;
@@ -55,6 +56,8 @@ export interface QuestionOptionRow {
   id: Generated<number>;
   question_id: number;
   content: string;
+  /** 选项配图，JSON 数组字符串 */
+  images: string | null;
   is_correct: number;
   sort_order: number;
 }

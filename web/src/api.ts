@@ -62,3 +62,20 @@ export async function uploadXlsx(path: string, buffer: ArrayBuffer): Promise<unk
   }
   return res.json();
 }
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** 上传一张题目配图，返回可直接放进 <img src> 的相对地址 */
+export async function uploadImage(file: File): Promise<string> {
+  if (file.size > 4 * 1024 * 1024) throw new Error('图片不能超过 4MB');
+  const data = await fileToDataUrl(file);
+  const res = await request<{ url: string }>('/api/uploads', { method: 'POST', body: { data } });
+  return res.url;
+}

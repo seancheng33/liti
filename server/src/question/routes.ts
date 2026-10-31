@@ -8,13 +8,18 @@ import * as service from './service.js';
 import { buildTemplate } from '../excel/template.js';
 import { importQuestions, parseQuestionRows } from '../excel/import.js';
 
-const optionSchema = z.object({ content: z.string().min(1), isCorrect: z.boolean() });
+const imageListSchema = z.array(z.string()).optional();
+const optionSchema = z.object({
+  content: z.string().default(''),
+  isCorrect: z.boolean(),
+  images: imageListSchema,
+});
 const questionSchema = z.object({
   type: z.enum(['single', 'multiple']),
-  stem: z.string().min(1),
+  stem: z.string().default(''),
+  images: imageListSchema,
   explanation: z.string().optional().nullable(),
   categoryId: z.number().int().nullable().optional(),
-  difficulty: z.number().int().min(1).max(3).nullable().optional(),
   tags: z.array(z.string()).optional(),
   options: z.array(optionSchema).min(2).max(6),
   /** 明确知道重复仍要新增/覆盖时传 true */
@@ -66,7 +71,6 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     return service.listQuestions(db, {
       keyword: typeof q.keyword === 'string' ? q.keyword : undefined,
       categoryId: q.categoryId != null ? Number(q.categoryId) : undefined,
-      difficulty: q.difficulty != null ? Number(q.difficulty) : undefined,
       type: typeof q.type === 'string' ? q.type : undefined,
       status: typeof q.status === 'string' ? q.status : undefined,
       page: q.page != null ? Number(q.page) : 1,

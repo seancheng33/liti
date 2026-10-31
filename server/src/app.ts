@@ -13,7 +13,9 @@ import { paperRoutes } from './paper/routes.js';
 import { attemptRoutes } from './attempt/routes.js';
 import { statsRoutes } from './stats/routes.js';
 import { settingRoutes } from './settings/routes.js';
+import { uploadRoutes } from './upload/routes.js';
 import { HttpError } from './http-error.js';
+import { resolveUploadDir } from './media.js';
 import { webDistPath } from './paths.js';
 import { SESSION_COOKIE_NAME, deleteExpiredSessions, getSessionByToken } from './auth/session.js';
 import { parsePrefs } from './user-prefs.js';
@@ -84,12 +86,22 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
   await app.register(statsRoutes, { db, prefix: '/api/stats' });
   await app.register(settingRoutes, { db, prefix: '/api/settings' });
+  await app.register(uploadRoutes, { config, prefix: '/api/uploads' });
+
+  // 题目配图等上传文件（和 SPA 静态资源共用 fastify-static，第二次注册不再装饰 reply）
+  const uploadRoot = resolveUploadDir(config.UPLOAD_DIR);
+  await app.register(fastifyStatic, {
+    root: uploadRoot,
+    prefix: '/uploads/',
+    decorateReply: false,
+    maxAge: '7d',
+  });
 
   // 生产模式托管前端静态资源（SPA 回退到 index.html）
   if (existsSync(webDistPath)) {
     await app.register(fastifyStatic, { root: webDistPath, prefix: '/' });
     app.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith('/api/')) {
+      if (request.url.startsWith('/api/') || request.url.startsWith('/uploads/')) {
         return reply.code(404).send({ error: 'Not Found' });
       }
       return reply.sendFile('index.html');
