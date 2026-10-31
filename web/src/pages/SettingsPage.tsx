@@ -65,25 +65,44 @@ function SiteConfigTab() {
   return (
     <Card>
       <Form form={form} layout="vertical" style={{ maxWidth: 680 }}>
-        <Form.Item name="siteName" label="站点名称" rules={[{ required: true }]}>
+        <Form.Item name="siteName" label="站点名称" rules={[{ required: true }]} tooltip="显示在页头、登录页和浏览器标签上">
           <Input style={{ maxWidth: 360 }} />
         </Form.Item>
-        <Form.Item name="siteAnnouncement" label="站点公告（登录页展示，留空则不显示）">
+        <Form.Item
+          name="siteAnnouncement"
+          label="站点公告（登录页展示，留空则不显示）"
+          extra="适合写考试安排、注意事项之类；首页和登录页都会显示。"
+        >
           <Input.TextArea rows={3} maxLength={500} showCount />
         </Form.Item>
         <Row gutter={16}>
           <Col xs={24} sm={12}>
-            <Form.Item name="defaultDurationSec" label="新建试卷默认时长（秒）" rules={[{ required: true }]}>
+            <Form.Item
+              name="defaultDurationSec"
+              label="新建试卷默认时长（秒）"
+              rules={[{ required: true }]}
+              extra="只是新建试卷时的预填值，每份卷子可以单独改。"
+            >
               <InputNumber min={60} max={86400} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
-            <Form.Item name="defaultPassScore" label="默认及格分（0–100）" rules={[{ required: true }]}>
+            <Form.Item
+              name="defaultPassScore"
+              label="默认及格分（0–100）"
+              rules={[{ required: true }]}
+              extra="只影响成绩单上的及格判定，不影响得分。"
+            >
               <InputNumber min={0} max={100} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="practiceEnabled" label="允许学生自助练习" valuePropName="checked">
+        <Form.Item
+          name="practiceEnabled"
+          label="允许学生自助练习"
+          valuePropName="checked"
+          extra="关闭后学生端不再出现「随机练习」入口，教师端不受影响。"
+        >
           <Switch />
         </Form.Item>
         <Button type="primary" loading={loading} onClick={onSave}>

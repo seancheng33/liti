@@ -285,26 +285,32 @@ export default function QuestionsPage() {
           isManager ? (
             <>
               <Space.Compact>
-                <Select
-                  value={importMode}
-                  onChange={(v) => setImportMode(v)}
-                  style={{ width: 160 }}
-                  options={[
-                    { value: 'skip', label: '重复则跳过' },
-                    { value: 'strict', label: '有重复则整批不导' },
-                    { value: 'allow', label: '重复也导入' },
-                  ]}
-                />
+                <Tooltip title="导入时遇到与已有题目重复的行怎么办">
+                  <Select
+                    value={importMode}
+                    onChange={(v) => setImportMode(v)}
+                    style={{ width: 160 }}
+                    options={[
+                      { value: 'skip', label: '重复则跳过' },
+                      { value: 'strict', label: '有重复则整批不导' },
+                      { value: 'allow', label: '重复也导入' },
+                    ]}
+                  />
+                </Tooltip>
                 <Upload showUploadList={false} beforeUpload={onImport} accept=".xlsx">
                   <Button icon={<UploadOutlined />}>Excel 导入</Button>
                 </Upload>
               </Space.Compact>
-              <Button icon={<DownloadOutlined />} href="/api/questions/template">
-                模板
-              </Button>
-              <Button icon={<PlusOutlined />} type="primary" onClick={openCreate}>
-                新建题目
-              </Button>
+              <Tooltip title="下载模板：题型列是下拉菜单，表头有填写说明">
+                <Button icon={<DownloadOutlined />} href="/api/questions/template">
+                  模板
+                </Button>
+              </Tooltip>
+              <Tooltip title="题干和选项都可以配图；只放图片的题目可以不写题干">
+                <Button icon={<PlusOutlined />} type="primary" onClick={openCreate}>
+                  新建题目
+                </Button>
+              </Tooltip>
             </>
           ) : null
         }
@@ -354,6 +360,9 @@ export default function QuestionsPage() {
           columns={columns}
           dataSource={data}
           loading={loading}
+          locale={{
+            emptyText: keyword || filterCategory || filterType ? '没有符合条件的题目，换个筛选条件试试' : '题库还是空的，点右上角「新建题目」或「Excel 导入」开始建题',
+          }}
           pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
         />
       </Card>
@@ -390,16 +399,16 @@ export default function QuestionsPage() {
             </Form.Item>
           </Space>
 
-          <Form.Item name="stem" label="题干">
+          <Form.Item name="stem" label="题干" tooltip="题干留空、只放配图也能保存，会显示为「纯图片题」">
             <Input.TextArea rows={3} placeholder="题干文字；如果只有图片，可以留空" />
           </Form.Item>
 
-          <Form.Item name="images" label="题干配图（最多 6 张）">
+          <Form.Item name="images" label="题干配图（最多 6 张）" tooltip="支持 png / jpg / webp / gif，单张不超过 4MB">
             <ImageUpload max={6} />
           </Form.Item>
 
           <Divider orientation="left" plain style={{ margin: '4px 0 12px' }}>
-            选项
+            选项（至少 2 个，单选只能勾 1 个正确答案，多选至少勾 2 个）
           </Divider>
 
           <Form.List name="options">
@@ -420,7 +429,7 @@ export default function QuestionsPage() {
                       </Button>
                     </Space>
                     <Form.Item name={[field.name, 'images']} style={{ marginBottom: 0, marginTop: 8 }}>
-                      <ImageUpload size="sm" max={2} />
+                      <ImageUpload size="sm" max={3} />
                     </Form.Item>
                   </Card>
                 ))}

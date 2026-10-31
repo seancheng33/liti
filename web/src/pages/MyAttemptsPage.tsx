@@ -97,6 +97,7 @@ export default function MyAttemptsPage() {
           columns={columns}
           dataSource={data}
           loading={loading}
+          locale={{ emptyText: '还没有答卷。回首页挑一份试卷，点「开始答题」试试' }}
           pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
         />
       </Card>

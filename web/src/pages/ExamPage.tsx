@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Card, Checkbox, Modal, Progress, Radio, Result, Space, Tag, Typography, message, theme as antdTheme } from 'antd';
+import { Alert, Button, Card, Checkbox, Modal, Progress, Radio, Result, Space, Tag, Typography, message, theme as antdTheme } from 'antd';
 import { ClockCircleOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
@@ -27,6 +27,7 @@ export default function ExamPage() {
   const [paused, setPaused] = useState(false);
   const [violations, setViolations] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [showTip, setShowTip] = useState(true);
   const submittedRef = useRef(false);
 
   useEffect(() => {
@@ -177,6 +178,18 @@ export default function ExamPage() {
           </Space>
         </Space>
       </Card>
+
+      {showTip && (
+        <Alert
+          type="info"
+          showIcon
+          closable
+          onClose={() => setShowTip(false)}
+          style={{ marginTop: 16 }}
+          message="答案会自动保存，不用手动提交每一步"
+          description="切到别的窗口或标签页会被记为违规，累计 3 次自动强制交卷；倒计时结束也会自动交卷，已答的题照常判分。"
+        />
+      )}
 
       {/* 当前题目卡片 */}
       <Card

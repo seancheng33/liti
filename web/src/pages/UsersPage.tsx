@@ -170,22 +170,39 @@ export default function UsersPage() {
       />
 
       <Card styles={{ body: { padding: 0 } }}>
-        <Table rowKey="id" columns={columns} dataSource={data} loading={loading} pagination={false} />
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={data}
+          loading={loading}
+          pagination={false}
+          locale={{ emptyText: '还没有账号，点右上角「新建用户」创建第一个' }}
+        />
       </Card>
 
       {/* 新建用户 */}
       <Modal title="新建用户" open={createOpen} onOk={onCreate} onCancel={() => setCreateOpen(false)}>
         <Form form={createForm} layout="vertical">
-          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[{ required: true, message: '请输入用户名' }]}
+            tooltip="登录用，创建后不能修改"
+          >
             <Input placeholder="字母、数字、下划线" />
           </Form.Item>
-          <Form.Item name="displayName" label="显示名" rules={[{ required: true, message: '请输入显示名' }]}>
+          <Form.Item name="displayName" label="显示名" rules={[{ required: true, message: '请输入显示名' }]} tooltip="成绩单和答卷列表里显示的名字">
             <Input />
           </Form.Item>
-          <Form.Item name="password" label="密码" rules={[{ required: true, min: 6, message: '密码至少 6 位' }]}>
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[{ required: true, min: 6, message: '密码至少 6 位' }]}
+            tooltip="至少 6 位；创建后可以随时在列表里重置"
+          >
             <Input.Password />
           </Form.Item>
-          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+          <Form.Item name="role" label="角色" rules={[{ required: true }]} tooltip="学生只能答题；教师可管题库和试卷；管理员还能管用户和站点配置">
             <Radio.Group>
               <Radio value="student">学生</Radio>
               <Radio value="teacher">教师</Radio>

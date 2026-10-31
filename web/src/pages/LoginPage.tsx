@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Form, Input, Select, Space, Typography, message, theme as antdTheme } from 'antd';
-import { BgColorsOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth';
+import { Button, Card, Select, Space, Typography, theme as antdTheme } from 'antd';
+import { ArrowLeftOutlined, BgColorsOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTheme } from '../theme';
 import { api } from '../api';
+import LoginForm from '../components/LoginForm';
 
 export default function LoginPage() {
-  const { login } = useAuth();
   const { themeKey, presets, setThemeKey } = useTheme();
   const { token } = antdTheme.useToken();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
   const [site, setSite] = useState<{ siteName: string; siteAnnouncement: string }>({
     siteName: '砺题 Liti',
     siteAnnouncement: '',
@@ -23,19 +21,6 @@ export default function LoginPage() {
       .then(setSite)
       .catch(() => {});
   }, []);
-
-  async function onFinish(values: { username: string; password: string }) {
-    setLoading(true);
-    try {
-      await login(values.username, values.password);
-      message.success('登录成功');
-      navigate('/', { replace: true });
-    } catch (e) {
-      message.error((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <div className="liti-login">
@@ -86,7 +71,10 @@ export default function LoginPage() {
 
       <div className="liti-login-form">
         <div className="liti-login-card">
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
+              回首页
+            </Button>
             <Space size={6}>
               <BgColorsOutlined style={{ color: token.colorTextTertiary }} />
               <Select
@@ -117,21 +105,14 @@ export default function LoginPage() {
               </Card>
             )}
 
-            <Form onFinish={onFinish} layout="vertical" requiredMark={false} size="large">
-              <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-                <Input prefix={<UserOutlined />} autoFocus autoComplete="username" placeholder="请输入用户名" />
-              </Form.Item>
-              <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-                <Input.Password prefix={<LockOutlined />} autoComplete="current-password" placeholder="请输入密码" />
-              </Form.Item>
-              <Button type="primary" htmlType="submit" block loading={loading} style={{ marginTop: 4 }}>
-                进入砺题
-              </Button>
-            </Form>
+            <LoginForm autoFocus onSuccess={() => navigate('/', { replace: true })} />
           </Card>
 
           <Typography.Paragraph type="secondary" style={{ textAlign: 'center', fontSize: 12, marginTop: 16 }}>
-            {site.siteName} · 千题磨一剑
+            {site.siteName} · 千题磨一剑 ·{' '}
+            <Link to="/help">
+              <QuestionCircleOutlined /> 使用帮助
+            </Link>
           </Typography.Paragraph>
         </div>
       </div>

@@ -116,6 +116,65 @@ export interface SiteSettings {
   practiceEnabled: boolean;
 }
 
+/* ---------- 首页（公开接口） ---------- */
+
+export interface PublicOverview {
+  siteName: string;
+  siteAnnouncement: string;
+  practiceEnabled: boolean;
+  stats: {
+    questionCount: number;
+    categoryCount: number;
+    paperCount: number;
+    paperTotal: number;
+    attemptCount: number;
+    userCount: number;
+  };
+}
+
+/** 首页试卷卡片用的精简信息 */
+export interface PublicPaper {
+  id: number;
+  title: string;
+  questionCount: number;
+  durationSec: number;
+  passScore: number;
+  reviewMode: string;
+  shuffleOptions: boolean;
+  createdAt: number;
+}
+
+/* ---------- 试卷预览（考生视角，不含答案） ---------- */
+
+export interface PreviewOption {
+  label: string;
+  content: string;
+  images: string[];
+}
+
+export interface PreviewItem {
+  orderNo: number;
+  questionId: number;
+  type: string;
+  typeLabel: string;
+  stem: string;
+  images: string[];
+  options: PreviewOption[];
+}
+
+export interface PaperPreview {
+  id?: number;
+  title: string;
+  questionCount: number;
+  durationSec: number;
+  passScore: number;
+  reviewMode: string;
+  shuffleOptions: boolean;
+  status?: string;
+  categories?: string[];
+  items: PreviewItem[];
+}
+
 export interface StatsOverview {
   questionCount: number;
   questionByType: { single: number; multiple: number };

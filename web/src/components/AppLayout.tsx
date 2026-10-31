@@ -6,8 +6,10 @@ import {
   BgColorsOutlined,
   CheckOutlined,
   FileTextOutlined,
+  HomeOutlined,
   LogoutOutlined,
   ProfileOutlined,
+  QuestionCircleOutlined,
   ReadOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -21,7 +23,7 @@ import { useTheme } from '../theme';
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', teacher: '教师', student: '学生' };
 const ROLE_COLOR: Record<string, string> = { admin: 'red', teacher: 'blue', student: 'green' };
 
-export default function AppLayout() {
+export default function AppLayout({ children }: { children?: React.ReactNode }) {
   const { user, logout, applyTheme } = useAuth();
   const { themeKey, presets, isDark } = useTheme();
   const { token } = antdTheme.useToken();
@@ -44,6 +46,7 @@ export default function AppLayout() {
   const isAdmin = user?.role === 'admin';
 
   const items = [
+    { key: '/', icon: <HomeOutlined />, label: '首页' },
     { key: '/papers', icon: <FileTextOutlined />, label: '试卷' },
     { key: '/attempts', icon: <ProfileOutlined />, label: '我的答卷' },
     ...(isManager
@@ -59,6 +62,8 @@ export default function AppLayout() {
           { key: '/settings', icon: <SettingOutlined />, label: '网站管理' },
         ]
       : []),
+    { type: 'divider' as const },
+    { key: '/help', icon: <QuestionCircleOutlined />, label: '帮助' },
   ];
 
   const selectedKey = location.pathname.startsWith('/exam')
@@ -178,7 +183,7 @@ export default function AppLayout() {
           </div>
 
           <div className="liti-main-inner" key={location.pathname}>
-            <Outlet />
+            {children ?? <Outlet />}
           </div>
         </Layout.Content>
       </div>

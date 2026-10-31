@@ -2,6 +2,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Spin } from 'antd';
 import { AuthProvider, useAuth } from './auth';
 import LoginPage from './pages/LoginPage';
+import HomePage from './pages/HomePage';
+import HelpPage from './pages/HelpPage';
 import QuestionsPage from './pages/QuestionsPage';
 import CategoriesPage from './pages/CategoriesPage';
 import PapersPage from './pages/PapersPage';
@@ -32,27 +34,32 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* 公开页面：首页未登录也能看统计与已发布试卷预览 */}
+          <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/help" element={<HelpPage />} />
+
+          {/* 需要登录的站内页面：统一套 AppLayout（无 path 的布局路由） */}
           <Route
-            path="/"
             element={
               <RequireAuth>
                 <AppLayout />
               </RequireAuth>
             }
           >
-            <Route index element={<Navigate to="/papers" replace />} />
-            <Route path="papers" element={<PapersPage />} />
-            <Route path="questions" element={<QuestionsPage />} />
-            <Route path="categories" element={<CategoriesPage />} />
-            <Route path="attempts" element={<MyAttemptsPage />} />
-            <Route path="stats" element={<StatsPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="profile" element={<ProfilePage />} />
-            <Route path="exam/:attemptId" element={<ExamPage />} />
-            <Route path="review/:attemptId" element={<ReviewPage />} />
+            <Route path="/papers" element={<PapersPage />} />
+            <Route path="/questions" element={<QuestionsPage />} />
+            <Route path="/categories" element={<CategoriesPage />} />
+            <Route path="/attempts" element={<MyAttemptsPage />} />
+            <Route path="/stats" element={<StatsPage />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/exam/:attemptId" element={<ExamPage />} />
+            <Route path="/review/:attemptId" element={<ReviewPage />} />
           </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

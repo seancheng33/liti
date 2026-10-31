@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Empty,
@@ -14,16 +15,26 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
-import { DeleteOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EyeOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
+  UnorderedListOutlined,
+  DownloadOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 import QuestionPicker from '../components/QuestionPicker';
-import type { Category, Paper, PaperRule, Question, SiteSettings } from '../types';
+import PaperPreviewModal from '../components/PaperPreviewModal';
+import type { Category, Paper, PaperPreview, PaperRule, Question, SiteSettings } from '../types';
 
 const STATUS_COLOR: Record<string, string> = { draft: 'default', published: 'green', archived: 'orange' };
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', published: '已发布', archived: '已归档' };
@@ -45,6 +56,11 @@ export default function PapersPage() {
   // 手选题目
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<Question[]>([]);
+
+  // 预览
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<PaperPreview | null>(null);
 
   const isManager = user?.role === 'admin' || user?.role === 'teacher';
   const mode = Form.useWatch('mode', form);
@@ -82,8 +98,15 @@ export default function PapersPage() {
     setOpen(true);
   }
 
-  async function onCreate() {
-    const values = await form.validateFields();
+  /** 把表单收成接口入参；校验不通过时给提示并返回 null */
+  async function collectPayload(): Promise<Record<string, unknown> | null> {
+    let values: Record<string, any>;
+    try {
+      values = await form.validateFields();
+    } catch {
+      // 表单校验失败时 antd 已经在字段下方标红，这里不用再弹提示
+      return null;
+    }
     let questionIds: number[] | undefined;
     let randomRules: PaperRule[] | undefined;
 
@@ -92,32 +115,72 @@ export default function PapersPage() {
       const valid = rules.filter((r) => r && r.count > 0);
       if (!valid.length) {
         message.warning('请至少添加一条抽题规则');
-        return;
+        return null;
       }
       randomRules = valid.map((r) => ({ categoryId: r.categoryId ?? null, count: r.count }));
     } else {
       if (!picked.length) {
         message.warning('请先从题库中选择题目');
-        return;
+        return null;
       }
       questionIds = picked.map((q) => q.id);
     }
 
+    return {
+      title: values.title,
+      mode: values.mode,
+      durationSec: values.durationMin * 60,
+      passScore: values.passScore,
+      reviewMode: values.reviewMode,
+      shuffleOptions: values.shuffleOptions,
+      ...(randomRules ? { randomRules } : { questionIds }),
+    };
+  }
+
+  async function onCreate() {
+    const payload = await collectPayload();
+    if (!payload) return;
     try {
-      await api.post('/api/papers', {
-        title: values.title,
-        mode: values.mode,
-        durationSec: values.durationMin * 60,
-        passScore: values.passScore,
-        reviewMode: values.reviewMode,
-        shuffleOptions: values.shuffleOptions,
-        ...(randomRules ? { randomRules } : { questionIds }),
-      });
-      message.success('试卷已创建，别忘了发布');
+      await api.post('/api/papers', payload);
+      message.success('试卷已创建，别忘了点「发布」才会对学生可见');
       setOpen(false);
       load();
     } catch (e) {
       message.error((e as Error).message);
+    }
+  }
+
+  /** 新建弹窗里的「预览卷面」：按当前表单临时抽题，不落库 */
+  async function previewDraft() {
+    const payload = await collectPayload();
+    if (!payload) return;
+    setPreviewOpen(true);
+    setPreview(null);
+    setPreviewLoading(true);
+    try {
+      const data = await api.post<PaperPreview>('/api/papers/draft-preview', payload);
+      setPreview(data);
+    } catch (e) {
+      message.error((e as Error).message);
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  /** 已存在的试卷预览（草稿也能看） */
+  async function openPreview(id: number) {
+    setPreviewOpen(true);
+    setPreview(null);
+    setPreviewLoading(true);
+    try {
+      const data = await api.get<PaperPreview>(`/api/papers/${id}/preview`);
+      setPreview(data);
+    } catch (e) {
+      message.error((e as Error).message);
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -193,9 +256,12 @@ export default function PapersPage() {
     {
       title: '操作',
       key: 'op',
-      width: 200,
+      width: 240,
       render: (_: unknown, r: Paper) => (
         <Space size={12}>
+          <Tooltip title="考生视角看一遍卷面，不含答案">
+            <a onClick={() => openPreview(r.id)}>预览</a>
+          </Tooltip>
           {isManager && r.status !== 'published' && <a onClick={() => publish(r.id)}>发布</a>}
           {r.status === 'published' && <a onClick={() => startExam(r)}>开始答题</a>}
           {isManager && (
@@ -214,7 +280,7 @@ export default function PapersPage() {
     <div className="liti-page">
       <PageHeader
         title="试卷"
-        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。发布后学生就能作答。"
+        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建好后点「发布」，学生才能作答；点「预览」先看看卷面。"
         extra={
           <>
             {showPractice && (
@@ -257,36 +323,54 @@ export default function PapersPage() {
       <Modal
         title="新建试卷"
         open={open}
-        onOk={onCreate}
         onCancel={() => setOpen(false)}
         width={720}
-        okText="创建"
         cancelText="取消"
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Tooltip title="按当前填写的内容临时抽一份卷子看看效果，不会保存">
+              <Button icon={<EyeOutlined />} loading={previewLoading} onClick={previewDraft}>
+                预览卷面
+              </Button>
+            </Tooltip>
+            <Space>
+              <Button onClick={() => setOpen(false)}>取消</Button>
+              <Button type="primary" onClick={onCreate}>
+                创建
+              </Button>
+            </Space>
+          </div>
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="试卷标题" rules={[{ required: true, message: '请输入标题' }]}>
+          <Form.Item
+            name="title"
+            label="试卷标题"
+            rules={[{ required: true, message: '请输入标题' }]}
+            tooltip="会显示在学生的试卷列表和成绩单上"
+          >
             <Input placeholder="例如：计算机网络期中测验" />
           </Form.Item>
 
           <Space size={16} wrap>
-            <Form.Item name="durationMin" label="考试时长（分钟）" rules={[{ required: true }]}>
+            <Form.Item name="durationMin" label="考试时长（分钟）" rules={[{ required: true }]} tooltip="整卷倒计时，到点自动交卷">
               <InputNumber min={1} max={1440} style={{ width: 140 }} />
             </Form.Item>
-            <Form.Item name="passScore" label="及格分">
+            <Form.Item name="passScore" label="及格分" tooltip="只影响成绩页的及格判定，不影响得分">
               <InputNumber min={0} max={100} style={{ width: 120 }} />
             </Form.Item>
-            <Form.Item name="reviewMode" label="解析时机">
+            <Form.Item name="reviewMode" label="解析时机" tooltip="交卷后：整卷交完统一看解析；即时：每题答完就能看">
               <Radio.Group optionType="button" buttonStyle="solid">
                 <Radio.Button value="after_submit">交卷后</Radio.Button>
                 <Radio.Button value="immediate">即时</Radio.Button>
               </Radio.Group>
             </Form.Item>
-            <Form.Item name="shuffleOptions" label="选项乱序" valuePropName="checked">
+            <Form.Item name="shuffleOptions" label="选项乱序" valuePropName="checked" tooltip="每个学生拿到的选项顺序不同，防抄袭">
               <Switch />
             </Form.Item>
           </Space>
 
-          <Form.Item name="mode" label="组卷方式">
+          <Form.Item name="mode" label="组卷方式" tooltip="随机抽题每次抽到的题不固定；手选可以精确控制题目">
             <Radio.Group optionType="button" buttonStyle="solid">
               <Radio.Button value="random">按分类随机抽题</Radio.Button>
               <Radio.Button value="fixed">从题库手选题目</Radio.Button>
@@ -334,9 +418,14 @@ export default function PapersPage() {
             <Form.List name="randomRules">
               {(fields, { add, remove }) => (
                 <div>
-                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                    每个分类抽几题分别填写；分类留空表示从整个题库抽。
-                  </Typography.Text>
+                  <Alert
+                    type="info"
+                    showIcon
+                    icon={<InfoCircleOutlined />}
+                    style={{ marginBottom: 4 }}
+                    message="每条规则 = 从某个分类抽几题；分类留空表示从整个题库抽"
+                    description="多条规则之间不会抽到重复题目。填的题量多于题库现有题量时会提示不足，点「预览卷面」可以先看看这次抽到什么。"
+                  />
                   {fields.map((field, index) => (
                     <Space key={field.key} align="baseline" style={{ display: 'flex', marginTop: 10 }}>
                       <Form.Item name={[field.name, 'categoryId']} style={{ marginBottom: 0 }}>
@@ -354,13 +443,15 @@ export default function PapersPage() {
                       >
                         <InputNumber min={1} max={100} addonAfter="题" style={{ width: 140 }} />
                       </Form.Item>
-                      <Button
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        disabled={fields.length <= 1}
-                        onClick={() => remove(field.name)}
-                      />
+                      <Tooltip title={fields.length <= 1 ? '至少保留一条规则' : '删除这条规则'}>
+                        <Button
+                          type="text"
+                          danger
+                          icon={<DeleteOutlined />}
+                          disabled={fields.length <= 1}
+                          onClick={() => remove(field.name)}
+                        />
+                      </Tooltip>
                     </Space>
                   ))}
                   <Button
@@ -391,19 +482,41 @@ export default function PapersPage() {
       />
 
       {/* ---------- 随机练习 ---------- */}
-      <Modal title="随机练习" open={practiceOpen} onOk={startPractice} onCancel={() => setPracticeOpen(false)} okText="开始">
+      <Modal
+        title="随机练习"
+        open={practiceOpen}
+        onOk={startPractice}
+        onCancel={() => setPracticeOpen(false)}
+        okText="开始"
+        cancelText="取消"
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="练习卷只算自己的成绩，不会出现在「试卷」列表里"
+          description="练习同样会计时和判分，但可以从「我的答卷」里随时回看解析。"
+        />
         <Form form={practiceForm} layout="vertical">
-          <Form.Item name="categoryId" label="分类">
+          <Form.Item name="categoryId" label="分类" tooltip="留空则从整个题库随机抽">
             <Select allowClear placeholder="全部分类" options={categories.map((c) => ({ value: c.id, label: c.name }))} />
           </Form.Item>
-          <Form.Item name="count" label="题目数量（1–100）" rules={[{ required: true }]}>
+          <Form.Item name="count" label="题目数量（1–100）" rules={[{ required: true }]} tooltip="题目不够时会提示缺多少">
             <InputNumber min={1} max={100} />
           </Form.Item>
-          <Form.Item name="durationMin" label="时长（分钟）">
+          <Form.Item name="durationMin" label="时长（分钟）" tooltip="到点自动交卷">
             <InputNumber min={1} max={1440} />
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* ---------- 试卷预览（考生视角） ---------- */}
+      <PaperPreviewModal
+        open={previewOpen}
+        preview={preview}
+        loading={previewLoading}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   );
 }

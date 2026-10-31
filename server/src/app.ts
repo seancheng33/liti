@@ -13,6 +13,7 @@ import { paperRoutes } from './paper/routes.js';
 import { attemptRoutes } from './attempt/routes.js';
 import { statsRoutes } from './stats/routes.js';
 import { settingRoutes } from './settings/routes.js';
+import { publicRoutes } from './public/routes.js';
 import { uploadRoutes } from './upload/routes.js';
 import { HttpError } from './http-error.js';
 import { resolveUploadDir } from './media.js';
@@ -86,6 +87,7 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(attemptRoutes, { db, prefix: '/api/attempts' });
   await app.register(statsRoutes, { db, prefix: '/api/stats' });
   await app.register(settingRoutes, { db, prefix: '/api/settings' });
+  await app.register(publicRoutes, { db, prefix: '/api/public' });
   await app.register(uploadRoutes, { config, prefix: '/api/uploads' });
 
   // 题目配图等上传文件（和 SPA 静态资源共用 fastify-static，第二次注册不再装饰 reply）

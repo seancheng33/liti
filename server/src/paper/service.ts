@@ -70,26 +70,28 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
   return paperId;
 }
 
-export async function createPaper(db: Db, input: PaperInput, userId: number | null): Promise<number> {
-  const errors = validatePaperInput(input);
-  if (errors.length) throw new HttpError(400, errors.join('；'));
-
-  let questionIds: number[];
+/** 把组卷入参解析成最终题号数组（随机抽样或手选校验） */
+export async function resolveQuestionIds(db: Db, input: PaperInput): Promise<number[]> {
   if (input.mode === 'random') {
     const rules: SampleRule[] = (input.randomRules ?? []).map((r: RandomRule) => ({
       categoryId: r.categoryId ?? undefined,
       count: r.count,
     }));
-    questionIds = await sampleQuestionIds(db, rules);
-  } else {
-    const ids = [...new Set(input.questionIds ?? [])];
-    const existing = await db.selectFrom('question').select('id').where('id', 'in', ids).where('status', '=', 'active').execute();
-    const existingIds = new Set(existing.map((r) => r.id));
-    const missing = ids.filter((id) => !existingIds.has(id));
-    if (missing.length) throw new HttpError(400, `题目不存在或已归档: ${missing.join(',')}`);
-    questionIds = ids;
+    return sampleQuestionIds(db, rules);
   }
+  const ids = [...new Set(input.questionIds ?? [])];
+  const existing = await db.selectFrom('question').select('id').where('id', 'in', ids).where('status', '=', 'active').execute();
+  const existingIds = new Set(existing.map((r) => r.id));
+  const missing = ids.filter((id) => !existingIds.has(id));
+  if (missing.length) throw new HttpError(400, `题目不存在或已归档: ${missing.join(',')}`);
+  return ids;
+}
 
+export async function createPaper(db: Db, input: PaperInput, userId: number | null): Promise<number> {
+  const errors = validatePaperInput(input);
+  if (errors.length) throw new HttpError(400, errors.join('；'));
+
+  const questionIds = await resolveQuestionIds(db, input);
   return db.transaction().execute((trx) => insertPaper(trx, input, userId, questionIds));
 }
 

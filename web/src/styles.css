@@ -482,3 +482,144 @@ body {
 .liti-spacer-16 {
   height: 16px;
 }
+
+/* ============================================================
+   首页（未登录可见）
+   ============================================================ */
+.liti-guest {
+  min-height: 100vh;
+  background: var(--liti-bg);
+}
+
+.liti-guest-header {
+  background: color-mix(in srgb, var(--liti-surface) 82%, transparent);
+}
+
+.liti-guest-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 28px 64px;
+}
+
+.liti-hero {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 28px;
+  padding: 40px 40px 36px;
+  border-radius: calc(var(--liti-radius) + 6px);
+  border: 1px solid var(--liti-border);
+  background:
+    radial-gradient(720px 300px at 12% -10%, var(--liti-primary-soft), transparent 70%),
+    var(--liti-surface);
+}
+
+.liti-hero::after {
+  content: '';
+  position: absolute;
+  right: -80px;
+  top: -80px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: var(--liti-primary);
+  opacity: 0.08;
+}
+
+.liti-hero-title {
+  margin: 0 0 12px !important;
+  font-size: clamp(28px, 3.4vw, 42px) !important;
+  line-height: 1.24 !important;
+  letter-spacing: -0.5px;
+}
+
+.liti-hero-desc {
+  max-width: 640px;
+  margin-bottom: 20px !important;
+  color: var(--liti-text-2);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.liti-home-side {
+  position: sticky;
+  top: 88px;
+}
+
+.liti-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+/* 首页试卷卡片：整卡可点，hover 微微抬起 */
+.liti-paper-card {
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.liti-paper-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--liti-primary-border);
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.28);
+}
+
+.liti-paper-card .ant-card-head-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 卡片底部的按钮行：左边预览、右边开始答题 */
+.liti-paper-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--liti-border);
+}
+
+/* ---------- 试卷预览（考生视角） ---------- */
+.liti-preview-item {
+  padding: 16px 18px;
+  border: 1px solid var(--liti-border);
+  border-radius: var(--liti-radius);
+  background: var(--liti-surface-2);
+}
+
+.liti-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.liti-preview-no {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--liti-primary);
+}
+
+.liti-preview-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 991px) {
+  .liti-hero {
+    padding: 28px 22px;
+  }
+
+  .liti-home-side {
+    position: static;
+  }
+}
+
