@@ -41,6 +41,13 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
         .code(error.statusCode)
         .send({ error: error.message, ...(error.details !== undefined ? { details: error.details } : {}) });
     }
+    // fastify-static / @fastify/send 抛的是带 statusCode 的 HTTP 错误（例如路径穿越的 403），
+    // 不接住就会被兜成 500，既误导排错又把错误日志刷满
+    const status = (error as { statusCode?: number }).statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      const msg = status === 404 ? 'Not Found' : status === 403 ? 'Forbidden' : '请求无效';
+      return reply.code(status).send({ error: msg });
+    }
     request.log.error(error);
     console.error('[unhandled-error]', error);
     return reply.code(500).send({ error: '服务器内部错误' });
@@ -55,6 +62,18 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
 
   await app.register(fastifyCookie);
   app.decorateRequest('authUser', null);
+
+  // 基础安全响应头（不引 helmet，几个头手写更可控）
+  // - nosniff：防止浏览器把上传的图片按 HTML/JS 猜类型执行
+  // - X-Frame-Options：防点击劫持（考试页面被套进 iframe 里钓鱼）
+  // - Referrer-Policy：跨站跳转时不把带 token 的 URL 漏出去
+  app.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'SAMEORIGIN');
+    reply.header('Referrer-Policy', 'same-origin');
+    reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    return payload;
+  });
 
   // 会话解析（根级钩子，作用于所有路由）
   app.addHook('onRequest', async (request) => {

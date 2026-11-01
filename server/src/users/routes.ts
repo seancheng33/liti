@@ -138,6 +138,12 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
       })
       .where('id', '=', Number(id))
       .execute();
+
+    // 停用即踢下线：会话留着也没用了，顺手清掉，别指望每次请求都去查 status
+    if (body.status === 'disabled') {
+      await db.deleteFrom('session').where('user_id', '=', Number(id)).execute();
+    }
+
     return { ok: true };
   });
 
@@ -157,6 +163,11 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
       .set({ password_hash: await hashPassword(body.password), updated_at: Date.now() })
       .where('id', '=', Number(id))
       .execute();
+
+    // 重置密码后必须把该账号的会话全部作废：否则学生密码被改了，
+    // 他手上那个旧会话还能继续答题、看成绩，等于没改
+    await db.deleteFrom('session').where('user_id', '=', Number(id)).execute();
+
     return { ok: true };
   });
 

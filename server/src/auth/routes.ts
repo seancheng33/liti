@@ -23,6 +23,69 @@ const changePasswordSchema = z.object({
   newPassword: z.string().min(6).max(128),
 });
 
+// ---------- 登录失败限流 ----------
+// 内存滑动窗口就够了：单容器单进程，内网部署也没有多实例需求。
+// 不引第三方限流库，是为了让镜像少一个依赖。
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+/** 同一个「用户名 + IP」允许的失败次数 */
+const LOGIN_MAX_FAILS = 8;
+/** 同一个 IP 在窗口内允许的失败总数：挡住「换着用户名撞库」 */
+const LOGIN_MAX_FAILS_PER_IP = 30;
+interface FailBucket {
+  count: number;
+  resetAt: number;
+}
+const loginFails = new Map<string, FailBucket>();
+const ipFails = new Map<string, FailBucket>();
+
+/** 按「用户名 + 来源 IP」计数：只按 IP 会被同一个办公网出口连坐，只按用户名又挡不住撞库换号 */
+function failKey(username: string, ip: string): string {
+  return `${username.toLowerCase()}|${ip}`;
+}
+
+function bump(map: Map<string, FailBucket>, key: string): void {
+  const now = Date.now();
+  const b = map.get(key);
+  if (!b || b.resetAt <= now) {
+    map.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+  } else {
+    b.count++;
+  }
+  // 顺手清扫过期条目，别让表无限长
+  if (map.size > 5000) {
+    for (const [k, v] of map) if (v.resetAt <= now) map.delete(k);
+  }
+}
+
+/** 这个桶还需要等多少秒；0 表示没被限 */
+function remainSec(map: Map<string, FailBucket>, key: string, limit: number): number {
+  const b = map.get(key);
+  if (!b) return 0;
+  const left = b.resetAt - Date.now();
+  if (left <= 0) {
+    map.delete(key);
+    return 0;
+  }
+  return b.count >= limit ? Math.ceil(left / 1000) : 0;
+}
+
+/** 返回还需要等多少秒；0 表示没被限 */
+function throttleRemainSec(username: string, ip: string): number {
+  return Math.max(remainSec(loginFails, failKey(username, ip), LOGIN_MAX_FAILS), remainSec(ipFails, ip, LOGIN_MAX_FAILS_PER_IP));
+}
+
+function noteLoginFail(username: string, ip: string): void {
+  bump(loginFails, failKey(username, ip));
+  bump(ipFails, ip);
+}
+
+// 用户不存在时也跑一次 argon2，抹掉「有没有这个账号」的响应时间差
+let timingHash: string | null = null;
+async function dummyPasswordHash(): Promise<string> {
+  if (!timingHash) timingHash = await hashPassword('liti-dummy-password-for-timing');
+  return timingHash;
+}
+
 export async function authRoutes(
   app: FastifyInstance,
   opts: { db: Db; config: Config },
@@ -31,6 +94,14 @@ export async function authRoutes(
 
   app.post('/login', async (request, reply) => {
     const body = loginSchema.parse(request.body);
+
+    const key = failKey(body.username, request.ip);
+    const waitSec = throttleRemainSec(body.username, request.ip);
+    if (waitSec > 0) {
+      reply.header('Retry-After', String(waitSec));
+      throw new HttpError(429, `密码错误次数过多，请 ${Math.ceil(waitSec / 60)} 分钟后再试`);
+    }
+
     const user = await db
       .selectFrom('user')
       .selectAll()
@@ -38,12 +109,19 @@ export async function authRoutes(
       .where('provider', '=', 'local')
       .executeTakeFirst();
 
-    if (!user || !user.password_hash || !(await verifyPassword(user.password_hash, body.password))) {
+    // 账号不存在时也照样算一次哈希：否则「查无此人」会明显更快，等于送了个用户名枚举信标
+    const hash = user?.password_hash ?? (await dummyPasswordHash());
+    const passwordOk = await verifyPassword(hash, body.password);
+
+    if (!user || !passwordOk) {
+      noteLoginFail(body.username, request.ip);
       throw new HttpError(401, '用户名或密码错误');
     }
     if (user.status !== 'active') {
       throw new HttpError(403, '账号已停用');
     }
+
+    loginFails.delete(key);
 
     const session = await createSession(db, {
       userId: user.id,
@@ -118,7 +196,7 @@ export async function authRoutes(
   });
 
   // 本人修改密码（需校验当前密码）
-  app.post('/change-password', async (request) => {
+  app.post('/change-password', async (request, reply) => {
     const user = authenticate(request);
     const body = changePasswordSchema.parse(request.body);
 
@@ -139,6 +217,22 @@ export async function authRoutes(
       .set({ password_hash: await hashPassword(body.newPassword), updated_at: Date.now() })
       .where('id', '=', user.userId)
       .execute();
+
+    // 改完密码把这个账号的会话全作废，再给当前这台设备重发一个 ——
+    // 否则「密码泄露了，我改个密码」根本踢不掉对方手上那个会话。
+    await db.deleteFrom('session').where('user_id', '=', user.userId).execute();
+    const fresh = await createSession(db, {
+      userId: user.userId,
+      ttlMs: config.SESSION_TTL_MS,
+      ip: request.ip,
+      ua: request.headers['user-agent'],
+    });
+    reply.setCookie(SESSION_COOKIE_NAME, fresh.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: Math.floor(config.SESSION_TTL_MS / 1000),
+    });
 
     return { ok: true };
   });

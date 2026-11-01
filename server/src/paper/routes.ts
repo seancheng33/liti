@@ -89,10 +89,28 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
   });
 
   app.get('/:id', async (request) => {
-    authenticate(request);
+    const user = authenticate(request);
     const { id } = request.params as { id: string };
-    const p = await service.getPaperDetail(db, Number(id));
+    const paperId = Number(id);
+    if (!Number.isInteger(paperId) || paperId <= 0) throw new HttpError(400, '试卷编号无效');
+
+    const p = await service.getPaperDetail(db, paperId);
     if (!p) throw new HttpError(404, '试卷不存在');
+
+    // 学生只能看「自己创建的那份练习卷」或「已发布且确实可见的正式卷」。
+    // 其余一律当成不存在 —— 否则拿自增 ID 遍历就能把草稿卷、别人的限定卷、
+    // 别人的练习卷连可见名单一起翻出来。
+    if (user.role === 'student') {
+      const ownPractice = p.practice === 1 && p.created_by === user.userId;
+      const visible =
+        p.practice !== 1 &&
+        p.status === 'published' &&
+        (p.audience_mode === 'all' || (await service.paperVisibleTo(db, paperId, user.userId)));
+      if (!ownPractice && !visible) throw new HttpError(404, '试卷不存在');
+
+      // 可见名单和抽题规则是组卷老师才需要的信息，学生视角不给
+      return { ...p, audience_user_ids: [], audience_group_ids: [], random_config: null, created_by: null };
+    }
     return p;
   });
 

@@ -24,6 +24,7 @@
 - **独立错题本**：答错自动进本，答错一次累加一次次数；**做对一次就移出「待订正」**（记录保留，之后又错会重新拉进来）。错题库按人生成、按人隔离 —— 接口层面就不接受「查谁」这个参数，谁登录看谁的，读别人的错题详情直接 404。支持按状态 / 分类筛选、题干搜索、批量移除，详情里能看正确答案和解析。
 - **教师能管学生**：管理员管所有人；教师可以查看、新建、改资料、重置密码、删除**学生**账号 —— 但不能造教师、不能改角色、不能碰管理员、不能删自己。越权判定在服务端，不是前端藏个按钮。
 - **站内帮助**：`/help` 一份完整使用说明，未登录也能看。
+- **安全**：会话 token 32 字节随机、库里只存哈希、Cookie `HttpOnly` + `SameSite`；登录失败双维度限流（用户名+IP、单 IP）；停用账号 / 改密码即刻踢下所有会话；权限判定全在服务端（学生越权 403、名单外试卷一律 404）；考试模式答题中不下发答案与解析，暂停时题面在服务端就抹掉。详见 [docs/security.md](docs/security.md)。
 - **双数据库**：默认 SQLite（零配置本地运行），通过配置切换 MySQL，数据访问层统一。
 - **可扩展认证**：本地账号 + 角色权限（管理员 / 教师 / 学生）；预留 SSO（OIDC）接入点。
 
@@ -51,6 +52,7 @@ liti/
 │  ├─ architecture.md        # 系统架构设计文档
 │  ├─ deployment.md          # 部署指南（Node / Docker 速查）
 │  ├─ docker-build.md        # 自己拉代码做镜像（SQLite / MySQL 两种模式）
+│  ├─ security.md            # 安全测试与加固记录（63 项黑盒用例）
 │  └─ acceptance.md          # 验收报告
 ├─ server/                   # 后端（Fastify + Kysely）
 │  ├─ src/                   # 认证/题库/Excel/组卷/答题/判分/练习/错题本/分组
@@ -146,6 +148,9 @@ pnpm test:e2e         # E2E（需先 pnpm seed && pnpm start，并已安装 Play
 ```
 
 > 提交门槛：单元 + 集成 + E2E 全绿。详见 [docs/acceptance.md](docs/acceptance.md) 验收报告。
+>
+> 安全用例（63 项，纯 HTTP，不依赖源码结构）：
+> `LITI_BASE=http://127.0.0.1:8080 node e2e/security.mjs`，说明见 [docs/security.md](docs/security.md)。
 >
 > MySQL 实机冒烟需在具备 MySQL/Docker 的环境执行（本环境无 Docker，详见验收报告）。
 

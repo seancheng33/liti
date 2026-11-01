@@ -9,26 +9,27 @@ import { buildTemplate } from '../excel/template.js';
 import { exportQuestionsXlsx } from '../excel/export.js';
 import { importQuestions, parseQuestionRows } from '../excel/import.js';
 
-const imageListSchema = z.array(z.string()).optional();
+const imageListSchema = z.array(z.string().max(500)).max(9).optional();
 const optionSchema = z.object({
-  content: z.string().default(''),
+  // 长度都以「人能读的长度」为界：题库是给人看的，几十万字符只会把页面和导出拖死
+  content: z.string().max(2000).default(''),
   isCorrect: z.boolean(),
   images: imageListSchema,
 });
 const questionSchema = z.object({
   type: z.enum(['single', 'multiple']),
-  stem: z.string().default(''),
+  stem: z.string().max(5000).default(''),
   images: imageListSchema,
-  explanation: z.string().optional().nullable(),
+  explanation: z.string().max(20000).optional().nullable(),
   categoryId: z.number().int().nullable().optional(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string().max(32)).max(20).optional(),
   options: z.array(optionSchema).min(2).max(6),
   /** 明确知道重复仍要新增/覆盖时传 true */
   allowDuplicate: z.boolean().optional(),
 });
 
 const duplicateCheckSchema = z.object({
-  stem: z.string().min(1),
+  stem: z.string().min(1).max(5000),
   excludeId: z.number().int().optional(),
 });
 
@@ -90,7 +91,9 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
   });
 
   app.get('/', async (request) => {
-    authenticate(request);
+    const user = authenticate(request);
+    // 题库管理是老师/管理员的功能：学生能翻题库等于提前看到题干，考试公平性没了
+    requireRole(user, 'admin', 'teacher');
     const q = request.query as Record<string, unknown>;
     return service.listQuestions(db, {
       keyword: typeof q.keyword === 'string' ? q.keyword : undefined,

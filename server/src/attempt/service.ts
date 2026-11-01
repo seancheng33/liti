@@ -33,7 +33,11 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
   if (paper.status !== 'published' && paper.practice !== 1) throw new HttpError(400, '试卷未发布，无法作答');
 
   // 限定学生的卷子：不在名单里的一律当作不存在，别让人试出卷子标题
-  if (paper.practice !== 1 && !(await paperVisibleTo(db, paperId, userId))) {
+  if (paper.practice === 1) {
+    // 练习卷是「个人卷」：只有创建者本人能答。否则别人拿到 paperId 就能开你的练习卷，
+    // 而练习模式是逐题即时给答案的 —— 等于把答案白送出去。
+    if (paper.created_by !== userId) throw new HttpError(404, '试卷不存在');
+  } else if (!(await paperVisibleTo(db, paperId, userId))) {
     throw new HttpError(404, '试卷不存在');
   }
 
