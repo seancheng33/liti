@@ -28,6 +28,8 @@ export interface PaperPreviewMeta {
   passScore: number;
   reviewMode: string;
   shuffleOptions: boolean;
+  /** 题序乱序：每个学生一份独立卷面顺序 */
+  shuffleQuestions: boolean;
   status?: string;
   categories?: string[];
   /** 每题分值与总分：及格分是绝对分，没有总分就看不出 60 到底合不合理 */
@@ -144,6 +146,7 @@ export async function previewPaperById(db: Db, paperId: number): Promise<PaperPr
     passScore: paper.pass_score,
     reviewMode: paper.review_mode,
     shuffleOptions: paper.shuffle_options === 1,
+    shuffleQuestions: paper.shuffle_questions === 1,
     status: paper.status,
     perQuestionScore: paper.per_question_score,
     maxAttempts: paper.max_attempts,

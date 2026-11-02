@@ -13,6 +13,21 @@ interface PaperPreviewModalProps {
 }
 
 /**
+ * 预览里的那句「答题时会怎样」。
+ *
+ * 原来写死成「选项顺序会重新打乱」，但乱序两个开关都是按卷配置的 ——
+ * 一份关了选项乱序的卷子照样这么写，等于跟老师撒谎。按实际配置生成。
+ */
+function shuffleHint(p: PaperPreview | null): string {
+  const opt = p?.shuffleOptions === true;
+  const q = p?.shuffleQuestions === true;
+  if (opt && q) return '实际答题时题目顺序和选项顺序都会重新打乱，交卷后才按解析时机展示答案。';
+  if (opt) return '实际答题时选项顺序会重新打乱，交卷后才按解析时机展示答案。';
+  if (q) return '实际答题时每个学生的题目顺序不同，交卷后才按解析时机展示答案。';
+  return '实际答题时按现在的顺序呈现，交卷后才按解析时机展示答案。';
+}
+
+/**
  * 试卷预览（考生视角）：显示卷面题面与选项，但**不显示答案和解析**。
  * 首页看已发布试卷、教师端新建试卷时看草稿，都用这一个弹窗。
  */
@@ -63,7 +78,7 @@ export default function PaperPreviewModal({ open, preview, loading, onClose, ext
             showIcon
             style={{ marginBottom: 14 }}
             message="这里只展示题面，正确答案和解析不会出现在预览里"
-            description="实际答题时选项顺序会重新打乱，交卷后才按解析时机展示答案。"
+            description={shuffleHint(preview)}
           />
 
           <Space size={[8, 8]} wrap style={{ marginBottom: 16 }}>
@@ -78,6 +93,9 @@ export default function PaperPreviewModal({ open, preview, loading, onClose, ext
             </Tag>
             <Tag color="purple">{reviewModeText}</Tag>
             {preview.shuffleOptions && <Tag color="cyan">选项乱序</Tag>}
+            {preview.shuffleQuestions && (
+              <Tag color="gold">题序乱序</Tag>
+            )}
             {preview.categories?.map((c) => (
               <Tag key={c}>{c}</Tag>
             ))}

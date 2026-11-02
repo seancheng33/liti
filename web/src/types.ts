@@ -194,6 +194,8 @@ export interface PublicPaper {
   totalScore: number;
   reviewMode: string;
   shuffleOptions: boolean;
+  /** 题序乱序：每个学生一份独立卷面顺序 */
+  shuffleQuestions?: boolean;
   createdAt: number;
   /** 允许开考 / 统一收卷时间，null = 不限制 */
   startAt?: number | null;
@@ -226,6 +228,8 @@ export interface PaperPreview {
   passScore: number;
   reviewMode: string;
   shuffleOptions: boolean;
+  /** 题序乱序：每个学生一份独立卷面顺序 */
+  shuffleQuestions?: boolean;
   status?: string;
   categories?: string[];
   perQuestionScore?: number;

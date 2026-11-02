@@ -61,8 +61,13 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
     }
   }
 
-  const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', paperId).orderBy('order_no', 'asc').execute();
-  if (!items.length) throw new HttpError(400, '试卷没有题目');
+  const paperItems = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', paperId).orderBy('order_no', 'asc').execute();
+  if (!paperItems.length) throw new HttpError(400, '试卷没有题目');
+
+  // 题序乱序（A/B 卷）：顺序**在这里定一次**就落进 attempt_item.order_no。
+  // 绝不能每次读答卷时现打乱 —— 学生翻回上一题会发现题干换了，答题卡上的「第 3 题」
+  // 也会在两次刷新之间指向不同的题。
+  const items = paper.shuffle_questions === 1 ? fisherYates(paperItems) : paperItems;
 
   // 有一份还没交的答卷就接着答，而不是再开一张 —— 否则重复点「开始答题」
   // 会白白占掉作答次数，学生也会发现之前写的答案没了
@@ -119,7 +124,8 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
       .executeTakeFirstOrThrow();
     const attemptId = Number(res.insertId);
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       const options = await trx
         .selectFrom('question_option')
         .selectAll()
@@ -134,7 +140,8 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
         .values({
           attempt_id: attemptId,
           question_id: item.question_id,
-          order_no: item.order_no,
+          // 用打乱后的位次，不是 paper_item.order_no —— 题序乱序就靠这一列生效
+          order_no: i + 1,
           option_order: JSON.stringify(ordered),
           selected: null,
           is_correct: null,

@@ -12,6 +12,12 @@ export interface PaperInput {
   passScore?: number;
   reviewMode?: ReviewMode;
   shuffleOptions?: boolean;
+  /**
+   * 是否打乱**题目顺序**（每个学生一份独立卷面），默认 false。
+   * 与 shuffleOptions 的默认开相反 —— 题序变了，「第几题」在师生之间就对不上，
+   * 得是老师知情的选择。
+   */
+  shuffleQuestions?: boolean;
   randomRules?: RandomRule[];
   questionIds?: number[];
   /** all = 所有学生可见（默认）；selected = 只给 audienceUserIds 里的学生 + audienceGroupIds 里的分组看 */

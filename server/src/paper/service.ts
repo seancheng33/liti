@@ -58,6 +58,8 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       pass_score: passScore,
       review_mode: input.reviewMode ?? 'after_submit',
       shuffle_options: input.shuffleOptions === false ? 0 : 1,
+      // 题序默认不打乱：见 migrations/0015 的说明
+      shuffle_questions: input.shuffleQuestions === true ? 1 : 0,
       random_config: input.mode === 'random' ? JSON.stringify(input.randomRules ?? []) : null,
       status: 'draft',
       practice: 0,

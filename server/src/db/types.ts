@@ -93,6 +93,11 @@ export interface PaperRow {
   pass_score: number;
   review_mode: ReviewMode;
   shuffle_options: number;
+  /**
+   * 1 = 每个学生拿到的**题目顺序**不同（开考那一刻定下，写进 attempt_item.order_no）。
+   * 与 shuffle_options 不同，这个默认 0：题序变了会让「第 3 题」在师生之间指代不同。
+   */
+  shuffle_questions: ColumnType<number, number | undefined, number>;
   random_config: string | null;
   status: PaperStatus;
   practice: number;

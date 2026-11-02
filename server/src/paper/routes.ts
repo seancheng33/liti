@@ -23,6 +23,7 @@ const paperSchema = z.object({
   passScore: z.number().int().min(0).max(10000).optional(),
   reviewMode: z.enum(['after_submit', 'immediate', 'never']).optional(),
   shuffleOptions: z.boolean().optional(),
+  shuffleQuestions: z.boolean().optional(),
   randomRules: z.array(ruleSchema).optional(),
   questionIds: z.array(z.number().int()).optional(),
   audienceMode: z.enum(['all', 'selected']).optional(),
@@ -98,6 +99,7 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
       passScore: body.passScore ?? Math.min(60, totalScore),
       reviewMode: body.reviewMode ?? 'after_submit',
       shuffleOptions: body.shuffleOptions !== false,
+      shuffleQuestions: body.shuffleQuestions === true,
       startAt: body.startAt ?? null,
       endAt: body.endAt ?? null,
       maxAttempts: body.maxAttempts ?? 3,
@@ -122,6 +124,9 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
         startAt: body.startAt ?? null,
         endAt: body.endAt ?? null,
         audienceMode: body.audienceMode ?? 'all',
+        // 防作弊配置留痕：事后争议「这场到底打乱没有」时能查
+        shuffleOptions: body.shuffleOptions !== false,
+        shuffleQuestions: body.shuffleQuestions === true,
       },
     });
     return { id };

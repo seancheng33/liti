@@ -163,6 +163,8 @@ export default function PapersPage() {
       passScore: settings?.defaultPassScore ?? 60,
       publication: 'after_submit',
       shuffleOptions: true,
+      // 题序默认关：开了以后「第几题」在师生之间对不上，得老师明确要防对暗号时才开
+      shuffleQuestions: false,
       allowStudentPause: true,
       startAt: undefined,
       endAt: undefined,
@@ -221,6 +223,7 @@ export default function PapersPage() {
       analysisPublished,
       resultsPublished,
       shuffleOptions: values.shuffleOptions,
+      shuffleQuestions: values.shuffleQuestions === true,
       startAt: parseLocal(values.startAt),
       endAt: parseLocal(values.endAt),
       allowStudentPause: values.allowStudentPause !== false,
@@ -728,6 +731,14 @@ export default function PapersPage() {
               <InputNumber min={0} max={10000} style={{ width: 120 }} addonAfter="分" />
             </Form.Item>
             <Form.Item name="shuffleOptions" label="选项乱序" valuePropName="checked" tooltip="每个学生拿到的选项顺序不同，防抄袭">
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="shuffleQuestions"
+              label="题序乱序"
+              valuePropName="checked"
+              tooltip="每个学生拿到的题目顺序不同，防「第 3 题选 B」这种对暗号。注意：开了之后「第 3 题」在师生之间指代的不是同一道题，讲解时要按题目说，别按序号说"
+            >
               <Switch />
             </Form.Item>
           </Space>
