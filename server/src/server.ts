@@ -3,6 +3,7 @@ import { createDb } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { buildApp } from './app.js';
 import { closeExpiredAttempts } from './attempt/service.js';
+import { writeAudit, SYSTEM_ACTOR } from './audit/service.js';
 
 /** 收卷扫描间隔：到点没交的答卷最多晚 30 秒被判掉，够用且不会打满数据库 */
 const SWEEP_INTERVAL_MS = 30_000;
@@ -18,8 +19,19 @@ async function main(): Promise<void> {
   // 答卷也要被判成「超时交卷」。以前只靠访问时惰性判分，人一走就永远停在 in_progress。
   const sweep = () => {
     closeExpiredAttempts(db)
-      .then((n) => {
-        if (n > 0) app.log.info(`[sweeper] 自动收卷 ${n} 份`);
+      .then(async (n) => {
+        if (n > 0) {
+          app.log.info(`[sweeper] 自动收卷 ${n} 份`);
+          // 无人操作但改了成绩的动作也要进审计：学生来问「我没交怎么会是超时」时，
+          // 这条记录能说清是系统在什么时间点收的
+          await writeAudit(db, {
+            actor: SYSTEM_ACTOR,
+            action: 'attempt.auto-close',
+            targetType: 'attempt',
+            targetLabel: `自动收卷 ${n} 份`,
+            detail: { closed: n },
+          });
+        }
       })
       .catch((err) => app.log.error({ err }, '[sweeper] 自动收卷失败'));
   };

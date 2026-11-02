@@ -9,6 +9,8 @@ import { exportAnalysisXlsx } from '../excel/analysis.js';
 import { analyzePaper } from './analysis.js';
 import * as proctor from './proctor.js';
 import * as service from './service.js';
+import { audit } from '../audit/service.js';
+import { attemptLabel, paperLabel } from '../audit/labels.js';
 
 export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
   const { db } = opts;
@@ -53,6 +55,14 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     // 按班导出：教务一学期会按班发好几轮成绩单
     const className = typeof q.className === 'string' && q.className.trim() ? q.className.trim() : undefined;
     const buf = await exportAttemptsXlsx(db, { paperId, className });
+    // 成绩册带姓名学号分数，整班导出属于敏感读操作
+    await audit(db, request, {
+      action: 'attempt.export',
+      targetType: 'paper',
+      targetId: paperId ?? null,
+      targetLabel: paperId != null ? await paperLabel(db, paperId) : '全站答卷流水',
+      detail: { paperId: paperId ?? null, className: className ?? null },
+    });
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header(
       'Content-Disposition',
@@ -81,6 +91,13 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     if (!Number.isInteger(paperId) || paperId <= 0) throw new HttpError(400, '请指定要分析的试卷');
     const className = typeof q.className === 'string' && q.className.trim() ? q.className.trim() : undefined;
     const buf = await exportAnalysisXlsx(db, paperId, className);
+    await audit(db, request, {
+      action: 'attempt.analysis-export',
+      targetType: 'paper',
+      targetId: paperId,
+      targetLabel: await paperLabel(db, paperId),
+      detail: { paperId, className: className ?? null },
+    });
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('Content-Disposition', `attachment; filename="liti-analysis-paper${paperId}.xlsx"`);
     return reply.send(buf);
@@ -183,14 +200,31 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     requireRole(user, 'admin', 'teacher');
     const { id, vid } = request.params as { id: string; vid: string };
     const body = z.object({ note: z.string().max(200).optional() }).parse(request.body ?? {});
-    return proctor.revokeViolation(db, Number(id), Number(vid), user.userId, body.note);
+    const r = await proctor.revokeViolation(db, Number(id), Number(vid), user.userId, body.note);
+    // 撤销一次违规 = 退回一次额度，可能直接影响「要不要强制交卷」，必须留痕
+    await audit(db, request, {
+      action: 'violation.revoke',
+      targetType: 'attempt',
+      targetId: Number(id),
+      targetLabel: await attemptLabel(db, Number(id)),
+      detail: { violationId: Number(vid), note: body.note ?? null },
+    });
+    return r;
   });
 
   app.post('/:id/violations/:vid/restore', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id, vid } = request.params as { id: string; vid: string };
-    return proctor.restoreViolation(db, Number(id), Number(vid));
+    const r = await proctor.restoreViolation(db, Number(id), Number(vid));
+    await audit(db, request, {
+      action: 'violation.restore',
+      targetType: 'attempt',
+      targetId: Number(id),
+      targetLabel: await attemptLabel(db, Number(id)),
+      detail: { violationId: Number(vid) },
+    });
+    return r;
   });
 
   app.post('/:id/submit', async (request) => {

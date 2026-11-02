@@ -507,3 +507,76 @@ export const VIOLATION_TYPE_LABEL: Record<string, string> = {
   blur: '窗口失焦',
   pagehide: '离开页面',
 };
+
+/* ---------------- v0.12 审计日志 ---------------- */
+
+export type AuditSeverity = 'normal' | 'sensitive' | 'critical';
+
+export interface AuditActionMeta {
+  key: string;
+  label: string;
+  category: string;
+  severity: AuditSeverity;
+}
+
+export interface AuditCategoryGroup {
+  category: string;
+  label: string;
+  actions: AuditActionMeta[];
+}
+
+export interface AuditMeta {
+  categories: AuditCategoryGroup[];
+  categoryLabel: Record<string, string>;
+  actors: { actorId: number | null; actorName: string; count: number }[];
+  severities: { key: string; label: string }[];
+  targetTypes: { key: string; label: string }[];
+}
+
+export interface AuditItem {
+  id: number;
+  at: number;
+  actorId: number | null;
+  actorName: string;
+  actorRole: string | null;
+  action: string;
+  actionLabel: string;
+  category: string | null;
+  severity: AuditSeverity;
+  targetType: string | null;
+  targetId: number | null;
+  targetLabel: string | null;
+  detail: Record<string, unknown> | null;
+  ip: string | null;
+}
+
+export interface AuditListResult {
+  items: AuditItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const AUDIT_SEVERITY_COLOR: Record<AuditSeverity, string> = {
+  normal: 'default',
+  sensitive: 'orange',
+  critical: 'red',
+};
+
+export const AUDIT_SEVERITY_LABEL: Record<AuditSeverity, string> = {
+  normal: '日常',
+  sensitive: '敏感',
+  critical: '高危',
+};
+
+/** 对象类型中文名；后端 meta 也会下发一份，这里只作按 id 拼详情时的兜底 */
+export const AUDIT_TARGET_LABEL: Record<string, string> = {
+  paper: '试卷',
+  user: '账号',
+  question: '题目',
+  group: '分组',
+  category: '分类',
+  attempt: '答卷',
+  setting: '设置',
+  audit: '审计',
+};

@@ -12,6 +12,7 @@ import * as migration0010 from '../migrations/0010_exam_window.js';
 import * as migration0011 from '../migrations/0011_exam_scale.js';
 import * as migration0012 from '../migrations/0012_proctor.js';
 import * as migration0013 from '../migrations/0013_fix_proctor_timestamps.js';
+import * as migration0014 from '../migrations/0014_audit.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
@@ -27,6 +28,7 @@ const migrations: Record<string, Migration> = {
   '0011_exam_scale': migration0011,
   '0012_proctor': migration0012,
   '0013_fix_proctor_timestamps': migration0013,
+  '0014_audit': migration0014,
 };
 
 const provider: MigrationProvider = {

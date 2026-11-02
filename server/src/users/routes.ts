@@ -9,6 +9,8 @@ import { hashPassword } from '../auth/password.js';
 import { groupNamesByUser, purgeUserFromGroups } from '../group/service.js';
 import { buildStudentTemplate, parseStudentRows, DEFAULT_STUDENT_PASSWORD } from '../excel/student.js';
 import { purgeUserWrong } from '../wrong/service.js';
+import { audit } from '../audit/service.js';
+import { userLabel } from '../audit/labels.js';
 
 const studentNoField = z
   .string()
@@ -255,6 +257,21 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
       }
     }
 
+    if (!dryRun) {
+      // 预检不写日志：它不改任何数据，记下来只会让「谁导了名单」这条线索变模糊
+      await audit(db, request, {
+        action: 'user.import',
+        targetType: 'user',
+        targetLabel: `${result.created} 个新账号（共 ${result.total} 行）`,
+        detail: {
+          total: result.total,
+          created: result.created,
+          skipped: result.skipped,
+          failed: result.failed,
+        },
+      });
+    }
+
     return result;
   });
 
@@ -289,7 +306,15 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
         updated_at: now,
       })
       .executeTakeFirstOrThrow();
-    return { id: Number(res.insertId) };
+    const newId = Number(res.insertId);
+    await audit(db, request, {
+      action: 'user.create',
+      targetType: 'user',
+      targetId: newId,
+      targetLabel: `${body.displayName}（${body.username}）`,
+      detail: { role: body.role, studentNo: body.studentNo ?? null, className: body.className ?? null },
+    });
+    return { id: newId };
   });
 
   // 编辑用户（改显示名/角色/状态）
@@ -320,14 +345,27 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     const nextStudentNo = body.studentNo === undefined ? target.student_no : body.studentNo?.trim() || null;
     if (nextStudentNo !== target.student_no) await assertStudentNoFree(db, nextStudentNo, target.id);
 
+    const nextDisplayName = body.displayName ?? target.display_name;
+    const nextRole = body.role ?? target.role;
+    const nextStatus = body.status ?? target.status;
+    const nextClassName = body.className === undefined ? target.class_name : body.className?.trim() || null;
+
+    // 只记真正变了的字段：逐字段不落地记一遍「张三→张三」没人看得下去
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+    if (nextDisplayName !== target.display_name) changes.displayName = { from: target.display_name, to: nextDisplayName };
+    if (nextRole !== target.role) changes.role = { from: target.role, to: nextRole };
+    if (nextStatus !== target.status) changes.status = { from: target.status, to: nextStatus };
+    if (nextStudentNo !== target.student_no) changes.studentNo = { from: target.student_no, to: nextStudentNo };
+    if (nextClassName !== target.class_name) changes.className = { from: target.class_name, to: nextClassName };
+
     await db
       .updateTable('user')
       .set({
-        display_name: body.displayName ?? target.display_name,
-        role: body.role ?? target.role,
-        status: body.status ?? target.status,
+        display_name: nextDisplayName,
+        role: nextRole,
+        status: nextStatus,
         student_no: nextStudentNo,
-        class_name: body.className === undefined ? target.class_name : body.className?.trim() || null,
+        class_name: nextClassName,
         updated_at: Date.now(),
       })
       .where('id', '=', Number(id))
@@ -336,6 +374,16 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     // 停用即踢下线：会话留着也没用了，顺手清掉，别指望每次请求都去查 status
     if (body.status === 'disabled') {
       await db.deleteFrom('session').where('user_id', '=', Number(id)).execute();
+    }
+
+    if (Object.keys(changes).length > 0) {
+      await audit(db, request, {
+        action: 'user.update',
+        targetType: 'user',
+        targetId: target.id,
+        targetLabel: `${nextDisplayName}（${target.username}）`,
+        detail: { changes },
+      });
     }
 
     return { ok: true };
@@ -352,6 +400,8 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     if (!target) throw new HttpError(404, '用户不存在');
     assertTeacherMayManage(user, target);
 
+    const label = await userLabel(db, target.id);
+
     await db
       .updateTable('user')
       .set({ password_hash: await hashPassword(body.password), updated_at: Date.now() })
@@ -361,6 +411,14 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     // 重置密码后必须把该账号的会话全部作废：否则学生密码被改了，
     // 他手上那个旧会话还能继续答题、看成绩，等于没改
     await db.deleteFrom('session').where('user_id', '=', Number(id)).execute();
+
+    // 不记密码内容，只记「谁重置了谁的密码」—— 详情里出现明文就是安全事故
+    await audit(db, request, {
+      action: 'user.reset-password',
+      targetType: 'user',
+      targetId: target.id,
+      targetLabel: label,
+    });
 
     return { ok: true };
   });
@@ -377,6 +435,15 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     if (!target) throw new HttpError(404, '用户不存在');
     assertTeacherMayManage(user, target);
 
+    // 必须在删除之前把名字抄下来 —— 删完就再也查不到这是谁了，
+    // 而「谁删了哪个账号」恰恰是这条日志唯一的价值
+    const label = await userLabel(db, target.id);
+    const counts = await db
+      .selectFrom('attempt')
+      .select((eb) => eb.fn.countAll<number>().as('c'))
+      .where('user_id', '=', Number(id))
+      .executeTakeFirst();
+
     // 删除该用户的答卷、错题库、分组归属
     await db.transaction().execute(async (trx) => {
       const attempts = await trx.selectFrom('attempt').select('id').where('user_id', '=', Number(id)).execute();
@@ -391,6 +458,15 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
       await trx.deleteFrom('session').where('user_id', '=', Number(id)).execute();
       await trx.deleteFrom('paper_audience').where('user_id', '=', Number(id)).execute();
       await trx.deleteFrom('user').where('id', '=', Number(id)).execute();
+    });
+
+    // 删账号连带删掉他的答卷，这个破坏力必须留痕
+    await audit(db, request, {
+      action: 'user.delete',
+      targetType: 'user',
+      targetId: target.id,
+      targetLabel: label,
+      detail: { deletedAttempts: Number(counts?.c ?? 0) },
     });
 
     return { ok: true };

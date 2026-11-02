@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
+import { audit } from '../audit/service.js';
 
 // 站点配置项定义（key -> 默认值 + 校验）
 const SETTING_DEFS: Record<string, { default: string; label: string; type: 'string' | 'number' | 'boolean' }> = {
@@ -64,6 +65,7 @@ export async function settingRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     requireRole(user, 'admin');
     const body = settingsSchema.parse(request.body);
     const now = Date.now();
+    const before = await loadSettings(db);
 
     const entries: { key: string; value: string }[] = [];
     if (body.siteName !== undefined) entries.push({ key: 'site_name', value: body.siteName });
@@ -71,6 +73,13 @@ export async function settingRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     if (body.defaultDurationSec !== undefined) entries.push({ key: 'default_duration_sec', value: String(body.defaultDurationSec) });
     if (body.defaultPassScore !== undefined) entries.push({ key: 'default_pass_score', value: String(body.defaultPassScore) });
     if (body.practiceEnabled !== undefined) entries.push({ key: 'practice_enabled', value: String(body.practiceEnabled) });
+
+    // 逐项比对，只记真的变了的键 —— 设置页一次提交五个字段，
+    // 全记一遍的话「公告改了」这件事会被埋在四行没变的记录里
+    const changes: Record<string, { from: string; to: string }> = {};
+    for (const e of entries) {
+      if (before[e.key] !== e.value) changes[e.key] = { from: before[e.key] ?? '', to: e.value };
+    }
 
     for (const e of entries) {
       // SQLite/MySQL 双方言兼容：先查再插入或更新，避免 ON CONFLICT 方言差异
@@ -80,6 +89,18 @@ export async function settingRoutes(app: FastifyInstance, opts: { db: Db }): Pro
       } else {
         await db.insertInto('setting').values({ key: e.key, value: e.value, updated_at: now }).execute();
       }
+    }
+
+    if (Object.keys(changes).length > 0) {
+      const labels = Object.keys(changes)
+        .map((k) => SETTING_DEFS[k]?.label ?? k)
+        .join('、');
+      await audit(db, request, {
+        action: 'setting.update',
+        targetType: 'setting',
+        targetLabel: labels,
+        detail: { changes },
+      });
     }
 
     return normalize(await loadSettings(db));

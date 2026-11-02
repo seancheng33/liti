@@ -4,6 +4,8 @@ import type { Db } from '../db/index.js';
 import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
 import { HttpError } from '../http-error.js';
+import { audit } from '../audit/service.js';
+import { categoryLabel } from '../audit/labels.js';
 
 const categorySchema = z.object({
   name: z.string().min(1).max(128),
@@ -35,7 +37,14 @@ export async function categoryRoutes(app: FastifyInstance, opts: { db: Db }): Pr
       .insertInto('category')
       .values({ name: body.name, parent_id: body.parentId ?? null, sort: body.sort ?? 0, created_at: now })
       .executeTakeFirstOrThrow();
-    return { id: Number(res.insertId) };
+    const newId = Number(res.insertId);
+    await audit(db, request, {
+      action: 'category.create',
+      targetType: 'category',
+      targetId: newId,
+      targetLabel: body.name,
+    });
+    return { id: newId };
   });
 
   // 编辑分类
@@ -46,11 +55,19 @@ export async function categoryRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     const body = categorySchema.parse(request.body);
     const existing = await db.selectFrom('category').select('id').where('id', '=', Number(id)).executeTakeFirst();
     if (!existing) throw new HttpError(404, '分类不存在');
+    const before = await categoryLabel(db, Number(id));
     await db
       .updateTable('category')
       .set({ name: body.name, parent_id: body.parentId ?? null, sort: body.sort ?? 0 })
       .where('id', '=', Number(id))
       .execute();
+    await audit(db, request, {
+      action: 'category.update',
+      targetType: 'category',
+      targetId: Number(id),
+      targetLabel: body.name,
+      detail: before && before !== body.name ? { renamedFrom: before } : null,
+    });
     return { ok: true };
   });
 
@@ -63,7 +80,14 @@ export async function categoryRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     if (!existing) throw new HttpError(404, '分类不存在');
     const used = await db.selectFrom('question').select('id').where('category_id', '=', Number(id)).executeTakeFirst();
     if (used) throw new HttpError(400, '该分类下还有题目，无法删除');
+    const label = await categoryLabel(db, Number(id));
     await db.deleteFrom('category').where('id', '=', Number(id)).execute();
+    await audit(db, request, {
+      action: 'category.delete',
+      targetType: 'category',
+      targetId: Number(id),
+      targetLabel: label,
+    });
     return { ok: true };
   });
 }

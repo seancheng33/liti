@@ -18,6 +18,7 @@ import ProctorPage from './pages/ProctorPage';
 import StatsPage from './pages/StatsPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
+import AuditPage from './pages/AuditPage';
 import ProfilePage from './pages/ProfilePage';
 import AppLayout from './components/AppLayout';
 
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/audit" element={<AuditPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/exam/:attemptId" element={<ExamPage />} />
             <Route path="/review/:attemptId" element={<ReviewPage />} />

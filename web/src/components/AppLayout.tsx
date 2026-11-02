@@ -3,6 +3,7 @@ import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography, theme a
 import {
   ApartmentOutlined,
   AppstoreOutlined,
+  AuditOutlined,
   BarChartOutlined,
   BgColorsOutlined,
   CheckOutlined,
@@ -66,6 +67,8 @@ export default function AppLayout({ children }: { children?: React.ReactNode }) 
       ? [{ key: '/users', icon: <TeamOutlined />, label: isAdmin ? '用户管理' : '学生管理' }]
       : []),
     ...(isAdmin ? [{ key: '/settings', icon: <SettingOutlined />, label: '网站管理' }] : []),
+    // 审计日志只给管理员：里面会出现「谁给谁重置了密码」这类横向信息
+    ...(isAdmin ? [{ key: '/audit', icon: <AuditOutlined />, label: '审计日志' }] : []),
     { type: 'divider' as const },
     { key: '/help', icon: <QuestionCircleOutlined />, label: '帮助' },
   ];

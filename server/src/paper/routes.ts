@@ -9,6 +9,8 @@ import { validatePaperInput } from './validate.js';
 import { closePaperAttempts } from '../attempt/service.js';
 import * as proctor from '../attempt/proctor.js';
 import * as service from './service.js';
+import { audit } from '../audit/service.js';
+import { paperLabel } from '../audit/labels.js';
 
 const ruleSchema = z.object({
   categoryId: z.number().int().nullable().optional(),
@@ -109,6 +111,19 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     requireRole(user, 'admin', 'teacher');
     const body = paperSchema.parse(request.body);
     const id = await service.createPaper(db, body, user.userId);
+    await audit(db, request, {
+      action: 'paper.create',
+      targetType: 'paper',
+      targetId: id,
+      targetLabel: body.title,
+      detail: {
+        mode: body.mode,
+        durationSec: body.durationSec,
+        startAt: body.startAt ?? null,
+        endAt: body.endAt ?? null,
+        audienceMode: body.audienceMode ?? 'all',
+      },
+    });
     return { id };
   });
 
@@ -168,13 +183,26 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     const body = audienceSchema.parse(request.body);
-    return service.setPaperAudience(
+    const result = await service.setPaperAudience(
       db,
       Number(id),
       body.audienceMode,
       body.audienceUserIds ?? [],
       body.audienceGroupIds ?? [],
     );
+    // 可见范围决定了谁能考，改它等于改考试名单，必须留痕
+    await audit(db, request, {
+      action: 'paper.audience-update',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: await paperLabel(db, Number(id)),
+      detail: {
+        audienceMode: body.audienceMode,
+        users: (body.audienceUserIds ?? []).length,
+        groups: (body.audienceGroupIds ?? []).length,
+      },
+    });
+    return result;
   });
 
   app.post('/:id/publish', async (request) => {
@@ -196,6 +224,12 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
       }
     }
     await service.setPaperStatus(db, Number(id), 'published');
+    await audit(db, request, {
+      action: 'paper.publish',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: await paperLabel(db, Number(id)),
+    });
     return { ok: true };
   });
 
@@ -206,6 +240,12 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     await service.archivePaper(db, Number(id));
+    await audit(db, request, {
+      action: 'paper.archive',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: await paperLabel(db, Number(id)),
+    });
     return { ok: true };
   });
 
@@ -215,7 +255,16 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     const body = publishResultsSchema.parse(request.body ?? {});
-    return service.publishPaperResults(db, Number(id), body);
+    const r = await service.publishPaperResults(db, Number(id), body);
+    // 「成绩什么时候放出去的」是学生申诉时第一个要核的时间点
+    await audit(db, request, {
+      action: 'paper.publish-results',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: await paperLabel(db, Number(id)),
+      detail: { resultsPublished: r.resultsPublished, analysisPublished: r.analysisPublished },
+    });
+    return r;
   });
 
   // 强制收卷：这场考试立刻结束，所有进行中的答卷按「强制收卷」判分
@@ -223,7 +272,16 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
+    const label = await paperLabel(db, Number(id));
     const closed = await closePaperAttempts(db, Number(id));
+    // 一次影响全场的操作，无论收了几份都要记 —— 收 0 份说明老师点的时候人已经走完了，也是信息
+    await audit(db, request, {
+      action: 'paper.close',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: label,
+      detail: { closed },
+    });
     return { closed };
   });
 
@@ -231,7 +289,15 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
+    // 先抄名字：删完就查不到了
+    const label = await paperLabel(db, Number(id));
     await service.deletePaper(db, Number(id));
+    await audit(db, request, {
+      action: 'paper.delete',
+      targetType: 'paper',
+      targetId: Number(id),
+      targetLabel: label,
+    });
     return { ok: true };
   });
 }

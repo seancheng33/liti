@@ -231,6 +231,27 @@ export interface SettingRow {
   updated_at: number;
 }
 
+/**
+ * 审计日志：谁在什么时候对什么东西做了什么。
+ *
+ * actor_name / actor_role / target_label 都是**写入时的快照**，
+ * 不靠 join 现查——用户改名或被删之后，日志仍要能读懂当时发生了什么。
+ */
+export interface AuditLogRow {
+  id: Generated<number>;
+  at: number;
+  /** 操作人；系统动作（自动收卷等）为 null */
+  actor_id: number | null;
+  actor_name: string;
+  actor_role: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: number | null;
+  target_label: string | null;
+  detail: string | null;
+  ip: string | null;
+}
+
 export interface Database {
   user: UserRow;
   session: SessionRow;
@@ -249,4 +270,5 @@ export interface Database {
   attempt_violation: AttemptViolationRow;
   wrong_question: WrongQuestionRow;
   setting: SettingRow;
+  audit_log: AuditLogRow;
 }

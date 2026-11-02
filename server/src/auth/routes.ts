@@ -7,6 +7,7 @@ import { createSession, deleteSession, SESSION_COOKIE_NAME } from './session.js'
 import { HttpError } from '../http-error.js';
 import { authenticate } from '../plugins/auth.js';
 import { parsePrefs, serializePrefs } from '../user-prefs.js';
+import { audit, writeAudit } from '../audit/service.js';
 
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
@@ -115,9 +116,30 @@ export async function authRoutes(
 
     if (!user || !passwordOk) {
       noteLoginFail(body.username, request.ip);
+      // 登录失败要留痕：撞库、离职老师的号还在被人试、学生互相猜密码，
+      // 都只能从这条记录里看出来。密码本身当然不进日志，只记「为什么失败」。
+      // 量不会失控 —— 上面那层限流到点就 429 了，走到这里之前已经截住。
+      await writeAudit(db, {
+        actor: { id: user?.id ?? null, name: user?.display_name || body.username, role: user?.role ?? null },
+        action: 'auth.login-failed',
+        targetType: 'user',
+        targetId: user?.id ?? null,
+        targetLabel: body.username,
+        detail: { username: body.username, reason: user ? 'bad-password' : 'no-such-user' },
+        ip: request.ip,
+      });
       throw new HttpError(401, '用户名或密码错误');
     }
     if (user.status !== 'active') {
+      await writeAudit(db, {
+        actor: { id: user.id, name: user.display_name || user.username, role: user.role },
+        action: 'auth.login-failed',
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.username,
+        detail: { username: user.username, reason: 'disabled' },
+        ip: request.ip,
+      });
       throw new HttpError(403, '账号已停用');
     }
 
@@ -128,6 +150,16 @@ export async function authRoutes(
       ttlMs: config.SESSION_TTL_MS,
       ip: request.ip,
       ua: request.headers['user-agent'],
+    });
+
+    // 这里还没有 authUser（会话刚建），所以显式传 actor
+    await writeAudit(db, {
+      actor: { id: user.id, name: user.display_name || user.username, role: user.role },
+      action: 'auth.login',
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.display_name,
+      ip: request.ip,
     });
 
     reply.setCookie(SESSION_COOKIE_NAME, session.token, {
@@ -148,6 +180,15 @@ export async function authRoutes(
   app.post('/logout', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE_NAME];
     if (token) {
+      // 会话还有效才记一条；过期后重复登出不必刷屏
+      if (request.authUser) {
+        await audit(db, request, {
+          action: 'auth.logout',
+          targetType: 'user',
+          targetId: request.authUser.userId,
+          targetLabel: request.authUser.displayName,
+        });
+      }
       await deleteSession(db, token);
     }
     reply.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
@@ -192,6 +233,17 @@ export async function authRoutes(
       .where('id', '=', user.userId)
       .execute();
 
+    // 只换主题不记日志 —— 那是界面偏好，不是管理动作，记了全是噪音
+    if (displayName !== row.display_name) {
+      await audit(db, request, {
+        action: 'auth.profile-update',
+        targetType: 'user',
+        targetId: user.userId,
+        targetLabel: displayName,
+        detail: { field: 'displayName', from: row.display_name, to: displayName },
+      });
+    }
+
     return { ok: true, displayName, theme: prefs.theme };
   });
 
@@ -232,6 +284,14 @@ export async function authRoutes(
       sameSite: 'lax',
       path: '/',
       maxAge: Math.floor(config.SESSION_TTL_MS / 1000),
+    });
+
+    // 学生说「我密码被人改了」时，这条日志能区分是本人改的还是老师重置的
+    await audit(db, request, {
+      action: 'auth.change-password',
+      targetType: 'user',
+      targetId: user.userId,
+      targetLabel: row.display_name,
     });
 
     return { ok: true };

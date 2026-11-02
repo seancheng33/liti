@@ -8,6 +8,8 @@ import * as service from './service.js';
 import { buildTemplate } from '../excel/template.js';
 import { exportQuestionsXlsx } from '../excel/export.js';
 import { importQuestions, parseQuestionRows } from '../excel/import.js';
+import { audit } from '../audit/service.js';
+import { questionLabel } from '../audit/labels.js';
 
 const imageListSchema = z.array(z.string().max(500)).max(9).optional();
 const optionSchema = z.object({
@@ -32,6 +34,13 @@ const duplicateCheckSchema = z.object({
   stem: z.string().min(1).max(5000),
   excludeId: z.number().int().optional(),
 });
+
+/** 题干当标签时的预览：压平空白、截断，别让一行日志被长题干撑成三屏 */
+function stemPreview(stem: string, max = 60): string {
+  const s = (stem ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return '（空题干）';
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
 
 export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
   const { db } = opts;
@@ -59,12 +68,28 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     }
 
     const parsed = await parseQuestionRows(body);
-    return importQuestions(db, parsed, {
+    const summary = await importQuestions(db, parsed, {
       dryRun,
       mode,
       filename: q.filename ?? 'import.xlsx',
       userId: user.userId,
     });
+    if (!dryRun) {
+      await audit(db, request, {
+        action: 'question.import',
+        targetType: 'question',
+        targetId: null,
+        targetLabel: q.filename ?? 'import.xlsx',
+        detail: {
+          total: summary.total,
+          success: summary.success,
+          failed: summary.failed,
+          skippedDuplicates: summary.skippedDuplicates,
+          mode,
+        },
+      });
+    }
+    return summary;
   });
 
   // Excel 导出：列结构与导入模板一致（导出→改→导入 闭环）
@@ -75,11 +100,19 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     const status: 'active' | 'archived' | 'all' =
       q.status === 'archived' || q.status === 'all' ? q.status : 'active';
 
-    const { buffer } = await exportQuestionsXlsx(db, {
+    const { buffer, count, truncated } = await exportQuestionsXlsx(db, {
       keyword: typeof q.keyword === 'string' && q.keyword ? q.keyword : undefined,
       categoryId: q.categoryId != null && q.categoryId !== '' ? Number(q.categoryId) : null,
       type: typeof q.type === 'string' && q.type ? q.type : undefined,
       status,
+    });
+
+    // 题库整包导出等于把试卷内容带走，属于要留痕的敏感读操作
+    await audit(db, request, {
+      action: 'question.export',
+      targetType: 'question',
+      targetLabel: `导出 ${count} 题${truncated ? '（已截断）' : ''}`,
+      detail: { count, truncated, status, categoryId: q.categoryId ?? null },
     });
 
     const stamp = new Date();
@@ -110,6 +143,13 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     requireRole(user, 'admin', 'teacher');
     const { allowDuplicate, ...body } = questionSchema.parse(request.body);
     const id = await service.createQuestion(db, body, user.userId, { allowDuplicate });
+    await audit(db, request, {
+      action: 'question.create',
+      targetType: 'question',
+      targetId: id,
+      targetLabel: stemPreview(body.stem),
+      detail: { type: body.type, categoryId: body.categoryId ?? null, allowDuplicate: !!allowDuplicate },
+    });
     return { id };
   });
 
@@ -136,7 +176,16 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
     const { allowDuplicate, ...body } = questionSchema.parse(request.body);
+    const before = await questionLabel(db, Number(id));
     await service.updateQuestion(db, Number(id), body, { allowDuplicate });
+    await audit(db, request, {
+      action: 'question.update',
+      targetType: 'question',
+      targetId: Number(id),
+      // 改题干就等于换了一道题，前后都留一眼，事后能判断「被改的是不是同一道」
+      targetLabel: `${stemPreview(body.stem)}${before && before !== stemPreview(body.stem) ? `（原：${before}）` : ''}`,
+      detail: { type: body.type, categoryId: body.categoryId ?? null },
+    });
     return { ok: true };
   });
 
@@ -153,15 +202,38 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
       .parse(request.body);
 
     if (body.action === 'delete') {
-      return service.batchDeleteQuestions(db, body.ids);
+      const r = await service.batchDeleteQuestions(db, body.ids);
+      await audit(db, request, {
+        action: 'question.batch-delete',
+        targetType: 'question',
+        targetLabel: `归档 ${r.archived} 题`,
+        detail: { requested: body.ids.length, archived: r.archived, usedInPapers: r.usedInPapers },
+      });
+      return r;
     }
-    return service.batchSetCategory(db, body.ids, body.categoryId ?? null);
+    const r = await service.batchSetCategory(db, body.ids, body.categoryId ?? null);
+    await audit(db, request, {
+      action: 'question.batch-category',
+      targetType: 'question',
+      targetLabel: `改分类 ${r.updated} 题`,
+      detail: { requested: body.ids.length, updated: r.updated, categoryId: body.categoryId ?? null },
+    });
+    return r;
   });
 
   app.delete('/:id', async (request) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
     const { id } = request.params as { id: string };
-    return service.deleteQuestion(db, Number(id));
+    const label = await questionLabel(db, Number(id));
+    const r = await service.deleteQuestion(db, Number(id));
+    await audit(db, request, {
+      action: 'question.delete',
+      targetType: 'question',
+      targetId: Number(id),
+      targetLabel: label,
+      detail: { usedInPapers: r.usedInPapers },
+    });
+    return r;
   });
 }

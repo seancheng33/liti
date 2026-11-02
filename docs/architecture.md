@@ -99,12 +99,14 @@
 | `attempt_violation` | id, attempt_id, type, occurred_at, meta, **revoked_at**, **revoked_by**, **revoke_note** |
 | `wrong_question` | id, user_id, question_id, wrong_count, first_wrong_at, last_wrong_at, last_attempt_id, resolved_at, created_at, updated_at —— **每人一份，(user_id, question_id) 唯一** |
 | `import_batch` | id, filename, total, success, failed, errors(JSON), created_by, created_at |
+| `audit_log` | id, at(**bigint**), actor_id, actor_name(快照), actor_role(快照), action, target_type, target_id, target_label(快照), detail(JSON), ip |
 
 > v0.4 新增字段：`attempt.paused_at` / `paused_total_ms`、`attempt_item.flagged`、`paper.audience_mode` + `paper_audience`（迁移 `0008_exam_enhance`）。
 > v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
 > v0.7 新增：`paper.start_at` / `end_at` / `allow_student_pause` / `per_question_score` / `results_published` / `analysis_published`（迁移 `0010_exam_window`）；同期加索引 `idx_attempt_status_deadline`、`idx_attempt_paper`，给 30s 一次的自动收卷扫描用。
 > v0.8 新增：`paper.max_attempts`（默认 3）、`user.student_no`（**varchar(32)**，全校唯一）、`user.class_name`（**varchar(64)**）+ 索引 `idx_user_student_no` / `idx_user_class_name`（迁移 `0011_exam_scale`）。
 > v0.11 新增：`attempt.last_seen_at`（**bigint**，心跳时间）、`attempt_violation.revoked_at`（**bigint**）/ `revoked_by` / `revoke_note` + 索引 `idx_violation_attempt`（迁移 `0012_proctor`、`0013_fix_proctor_timestamps`）。
+> v0.12 新增：`audit_log` 表 + 索引 `idx_audit_at` / `idx_audit_action` / `idx_audit_actor` / `idx_audit_target`（迁移 `0014_audit`）。`at` 同样是 **bigint**。
 
 **v0.8 迁移的两个坑**（`0011_exam_scale`）
 
@@ -480,6 +482,91 @@ v0.7 把「一场考试的纪律」管住了，但**一个年级 400 人怎么�
 
 `GET /api/papers/:id/proctor` 对 `practice=1` 直接 400「练习卷没有考场，无法监考」。练习卷是学生自己抽题自己练，不存在「一场考试」，硬给一张监考表只会让人误以为有人在考。
 
+### 6.13 审计日志（v0.12）
+
+学校采购时一定会问同一类问题：**这份卷子是谁在什么时候发布的？这个学生的密码是谁重置的？上周三那次强制收卷是谁点的？**
+
+答题、违规、成绩这些数据本身都带时间戳，但**谁操作的**以前只活在会话里 —— 会话一过期就查无此人。审计日志补的就是这一层。
+
+#### 6.13.1 显式埋点，不用全局 hook
+
+最省事的做法是挂一个 `onResponse` 钩子，把所有非 GET 且返回 2xx 的请求都记下来。**没有这么做**，原因很直接：钩子只能拿到 `POST /api/papers/12/archive`，不知道被归档的卷子叫什么，也不知道这次操作改了什么。
+
+审计的价值在于「人能读懂」，所以每个关键路由显式调一次：
+
+```ts
+await audit(db, request, {
+  action: 'paper.archive',
+  targetType: 'paper',
+  targetId: id,
+  targetLabel: await paperLabel(db, id),
+});
+```
+
+代价是新增路由时容易漏记 —— 这是有意的取舍：**漏记可以补，记一堆读不懂的 URL 补不回来**。动作清单集中在 `server/src/audit/actions.ts`，加动作只改那一处，前端的中文标签通过 `GET /api/audit/meta` 拿，不维护第二份。
+
+#### 6.13.2 名字存快照，不 join 现查
+
+`actor_name` / `actor_role` / `target_label` 都是**写入那一刻抄下来的**，不与 `user` / `paper` 表 join。
+
+理由是审计要回答的是「**当时**是谁、动的是**哪一份**」：
+
+- 用户改名之后，join 出来是新名字，历史记录跟着一起变，等于篡改。
+- 用户被删之后，join 出来是 `NULL`，最需要追责的一条线索正好消失。
+- 试卷归档、题目软删之后，`target_label` 还能让你看懂当时动的是什么。
+
+`actor_id` / `target_id` 仍然保留，只作筛选用的索引，不做展示。
+
+#### 6.13.3 不记学生的答题流水
+
+边界画在「管理动作」上：发布、归档、删数据、改设置、重置密码、撤销违规、导出 —— 以及登录。
+
+**开考、存答案、交卷不进审计表**。这些动作在 `attempt` / `attempt_item` 里本来就有时间戳，翻答卷更直接；一学期几十万条答题记录会把真正要查的那几条彻底埋掉。
+
+一个例外是**系统自动收卷**（`attempt.auto-close`）：无人操作但改了成绩，学生来问「我没交怎么会是超时」时，这条记录能说清是哪个时间点收的。
+
+#### 6.13.4 写日志失败不能拖垮业务
+
+`writeAudit()` 内部 `try/catch` 吞掉所有异常，只往控制台打一行：
+
+```ts
+catch (e) {
+  console.error('[audit] 写入失败，已忽略：', action, e);
+}
+```
+
+审计是**旁路**。一张表写不进去就让「发布试卷」跟着失败，等于用日志把主业务绑死。代价是极端情况下会丢记录 —— 考试期间宁可漏一条日志，也不能让学生交不了卷。
+
+#### 6.13.5 LIKE 的方言坑：`%` 必须剔，`_` 必须留
+
+关键字搜索用 `LIKE '%kw%'`。常见写法是把 `%` `_` 转义成 `\%` `\_`，但**两种库的默认 ESCAPE 不一样**：MySQL 默认把反斜杠当转义符，SQLite 的 LIKE 没有默认 ESCAPE。同一个 `\%` 在 MySQL 匹配字面百分号、在 SQLite 变成「反斜杠 + 任意串」。
+
+所以改成先清洗再加通配符，只剔 `%` 和反斜杠：
+
+- `%` 是「任意串」，留着会把筛选变成全表命中，必须剔。
+- `_` 是「任意单字符」，**必须留** —— 学号、用户名里全是下划线（`2024_001`、`v12_123456`），剔掉这些搜索全部失效。这一条是实测出来的：第一版连 `_` 一起剔，`C9 关键字能命中对象名称` 当场挂掉。
+- 反斜杠在 SQLite 里会被当普通字符，剔掉是为了两边行为一致。
+
+#### 6.13.6 清理日志不能删掉「谁清过日志」
+
+`POST /api/audit/purge` 的执行顺序是固定的：
+
+1. 先数出要删多少条；
+2. **写一条 `audit.purge`**（记谁、什么时候、删到哪个时间点、删了多少）；
+3. 再执行 `DELETE ... WHERE at < before AND action != 'audit.purge'`。
+
+那个 `action != 'audit.purge'` 是关键：**清理记录永远不能被后续清理删掉**。否则「有人清过日志」这件事会随着下一次清理一起消失，而这恰恰是审计里最该留痕的动作。
+
+另外 `before` 不允许超过服务端当前时间（「不能清理未来的日志」）。前后端时钟差 2 秒都会踩到这条 —— 测试脚本里必须用 `GET /api/health` 返回的 `time` 当基准，别用本机的 `Date.now()`。
+
+#### 6.13.7 只有管理员能看
+
+教师也能看的话，等于把「谁给谁重置了密码」「谁改了自己的班级」这类横向信息全打开了。需求上教师没有这个必要权限，学校也不会愿意。
+
+所以 `GET /api/audit*`、`/meta`、`/export`、`/purge` 全部 `requireRole(user, 'admin')`；前端入口、帮助章节也按 `role === 'admin'` 隐藏。
+
+注意教师**直接输入地址**仍能进页面（前端路由没有守卫），但接口 403，页面是空的 —— 数据安全靠服务端，前端隐藏只是顺手。
+
 ---
 
 ## 7. API 设计（草案）
@@ -553,6 +640,12 @@ POST         /api/attempts/:id/violations/:vid/restore   # 恢复一条被撤销
 POST         /api/attempts/:id/heartbeat     # 学生端每 20s 一次；回 status/serverNow/violations
 POST         /api/attempts/:id/submit        # 交卷；body 可带 { answers: [{questionId, selectedOptionIds}] } 快照兜底
 GET          /api/attempts/:id               # 答卷详情与解析（未发布时分数/对错一律 null）
+
+# 审计日志（仅管理员；教师/学生 403）
+GET   /api/audit                             # 列表：category/action/severity/actorId/targetType/targetId/keyword/from/to/page/pageSize
+GET   /api/audit/meta                        # 动作字典（分类树 + 标签 + 分级）+ 操作人下拉 + 对象类型
+GET   /api/audit/export                      # 导出 CSV（带 BOM），筛选参数与列表一致，本身也留痕
+POST  /api/audit/purge                       # 清理 before 之前的记录；清理动作自身永不删除
 GET          /api/attempts?mine=1            # 我的记录
 GET          /api/attempts/export            # 全站答卷流水 xlsx；?paperId= 单场成绩册（含缺考）；?className= 按班导出
 GET          /api/attempts/analysis          # 逐题分析：?paperId=&className=（P 值/D 值/选项分布/分数段）
@@ -665,6 +758,7 @@ GET  /api/meta
 | 页面 | 说明 |
 |---|---|
 | `UsersPage` | 列改为 ID / 用户名 / 姓名 / **学号** / **班级** / 角色 / 状态 / 分组 / 操作；**删掉「来源」「创建时间」两列**——两列价值最低，却把操作列挤成了竖排。SSO 来源改成用户名旁的小 Tag。顶部加筛选条（题干搜索 + 班级下拉 + 「共 N 人」），`useMemo` 前端过滤（用户数量在「一个年级几百人」量级，一次拉全量比每敲一个字打一次接口好）。页头加「导入学生名单」，新建/编辑弹窗加学号、班级字段。`scroll={{ x: 1090 }}` + 操作列 `fixed: 'right'`，防止窄屏横向溢出时按钮跟着滚走。 |
+| `AuditPage`（新增，`/audit`） | 审计日志页，仅管理员。筛选 6 项（类别/动作/操作人/分级/时间范围/关键字）+ 分级染色 Tag + 展开看 JSON 详情 + CSV 导出 + 清理弹窗。详见 8.11。 |
 | `UsersPage` 导入弹窗 | 三步式：① 下载模板（链接带 `download`，走 cookie 鉴权）② 上传 → 先跑 `dryRun=1` 预检 ③ 看结果报告（成功 / 跳过 / 失败三个 Tag + 错误表 + 警告表）→ 预检通过才出现「确认导入 N 人」。导入成功后回显默认密码与「已导入 N 人，请把初始密码告知学生」。整个过程不刷新页面也能重来。 |
 | `PapersPage` | 新建弹窗「考试组织」卡加「**可作答次数**」（`InputNumber` 1–99），下方一行提示：「正式统考建议『可作答次数 = 1、学生可自行暂停 = 关、成绩与解析 = 考完统一公布』」。学生视角剩余次数按卷算：`remaining_attempts === null` 显示「不限次数」，`?? limit` 兜底老接口。操作列的禁用判断也先判 `null` 再比大小，否则练习卷会被当成 0 次而禁掉按钮。 |
 | `PapersPage` 按班级导出 | 「更多」下拉新增「按班级导出成绩」→ 弹窗说明 + 班级下拉（数据来自 `GET /api/users/classes`）→ 跳转 `?paperId=&className=`。不给选择就导出整场，给了就只出这个班。 |
@@ -677,6 +771,15 @@ GET  /api/meta
 | `PapersPage` | 「更多」下拉在成绩导出那一组前面加了「逐题分析」，直接跳 `/analysis/:id`。注意菜单 key 用了 `examAnalysis` 而不是 `analysis` —— `analysis` 已经被「公布答案与解析」占用了，复用会让两个动作互相踩。 |
 | `ProctorPage`（新增，`/proctor/:paperId`） | 实时监考页，admin/teacher 专属（学生硬敲 URL 看到「你没有进入监考的权限」）。顶部自动刷新开关（10s 静默轮询，不切 loading 以免表格闪）+ 手动刷新 + 返回；六张统计卡（应考 / 在场·在线 / 掉线 / 已交卷 / 未开始 / 违规）；筛选条（Segmented 全部·在场·掉线·未开始·已结束 + 姓名/用户名/学号搜索 + 班级下拉）；表格列（学号/姓名/班级/状态/已答/剩余/违规/最后心跳/成绩/操作），操作列 `fixed: right`；违规明细弹窗里逐条「撤销 / 恢复」，顶部一个选填理由输入框。**成绩列未公布时显示「未公布」，绝不落到 0**。 |
 | `ExamPage` | 新增心跳 effect（20s 一次，首拍延后 3s 避开页面加载抢带宽）：拿回的 `serverNow` 用来校准倒计时偏移，`violations` 用来同步被撤销后的次数，`status` 不是 `in_progress` 就直接跳结果页 —— 原来学生被强制收卷后页面毫无察觉，还在那儿答题。 |
+
+### 8.11 v0.12 页面变化
+
+| 页面 | 说明 |
+|---|---|
+| `AuditPage`（新增，`/audit`） | 审计日志页，**仅管理员**。顶部三个动作：刷新 / 导出 CSV（`<a href>` 直接指向接口，带上当前筛选）/ 清理旧日志（弹窗里 90·180·365 三档 + 不可恢复的警示）。筛选条 6 个控件：类别、动作、操作人、分级、时间范围、关键字；**选了类别会把动作下拉收窄到该类**，避免「类别=登录 + 动作=发布试卷」这种必然为空的组合。表格 6 列（时间/操作人/动作/对象/详情/IP），动作用 Tag 按分级上色（日常灰、敏感橙、高危红），详情列一句话摘要（`status: active → disabled`），点开行看完整 JSON。 |
+| `AppLayout` | 管理员菜单加「审计日志」（`AuditOutlined`），放在「网站管理」之后；教师与学生看不到。 |
+| `HelpPage` | 加「审计日志」章节，**目录锚点与正文卡片都按 `role === 'admin'` 渲染** —— 教师点进去看到一条指向 403 的目录项比没有更糟。 |
+| 时间范围为什么只有预设 | 只有全部 / 今天 / 近 7 / 30 / 90 天，不做自定义区间。antd 的 RangePicker 需要 dayjs 对象，而 `dayjs` 不是 web 的直接依赖（pnpm 严格模式下 `import dayjs` 解析不到），为一个筛选去加依赖不值当。审计查询的真实用法是「最近一次考试前后」+ 关键字，预设够用。 |
 
 ---
 
@@ -714,6 +817,7 @@ GET  /api/meta
 | M11 逐题分析（v0.9） | P 值 / D 值 / 选项分布 / 分数段分布、逐题判断与教务提示、按班级分析、分析结果导出 xlsx | 67 项验收脚本双库全绿 + 25 项界面验收 + 7 张截图复查 |
 | M12 答案保存容错（v0.10） | 按题合并与串行保存、失败分级与指数退避、stuck 自愈、pagehide keepalive、交卷答案快照兜底 | 34 项验收脚本双库全绿（含断网模拟）+ 18 项界面验收 + 4 张截图复查 |
 | M13 实时监考（v0.11） | 学生端心跳与在线判定、监考视图（状态/已答/剩余/违规/最后心跳）、违规明细与软撤销/恢复、心跳驱动强制收卷跳转 | 73 项验收脚本双库全绿 + 28 项界面验收 + 8 张截图复查 |
+| M14 审计日志（v0.12） | 38 个动作显式埋点（登录/账号/试卷/题库/分组/分类/设置/考试/审计）、操作人或对象名称快照、分类·分级·关键字·对象筛选、CSV 导出、「不删自己」的清理 | 77 项验收脚本双库全绿 + 22 项界面验收 + 9 张截图复查 |
 
 ---
 

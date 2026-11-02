@@ -1,6 +1,7 @@
 import { Alert, Anchor, Card, Col, Collapse, Divider, Row, Space, Spin, Steps, Table, Tag, Typography } from 'antd';
 import {
   ApartmentOutlined,
+  AuditOutlined,
   BarChartOutlined,
   BookOutlined,
   EyeOutlined,
@@ -200,6 +201,8 @@ export default function HelpPage() {
 function HelpBody() {
   const { user } = useAuth();
   const isManager = user?.role === 'admin' || user?.role === 'teacher';
+  // 审计日志只有管理员能看，帮助目录也要跟着藏，否则点进去是一片报错
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="liti-page">
@@ -226,6 +229,7 @@ function HelpBody() {
                 { key: 'stats', href: '#stats', title: '成绩与统计' },
                 { key: 'analysis', href: '#analysis', title: '逐题分析' },
                 { key: 'proctor', href: '#proctor', title: '实时监考' },
+                ...(isAdmin ? [{ key: 'audit', href: '#audit', title: '审计日志' }] : []),
                 { key: 'faq', href: '#faq', title: '常见问题' },
               ]}
             />
@@ -640,6 +644,54 @@ function HelpBody() {
                 showIcon
                 message="撤销不是删除，也不会改分数"
                 description="记录会留着，只是标成「已撤销」并且不再占用三次额度——撤销一条，这名学生就重新获得一次机会。但如果他已经因为违规被强制交卷了，撤销不会把答卷退回答题状态，那种情况要在成绩册里另行处理。撤错了可以点「恢复」加回来。"
+              />
+            </Card>
+          )}
+
+          {isAdmin && (
+            <Card id="audit" style={{ marginBottom: 16 }}>
+              <Title level={4} style={{ marginTop: 0 }}>
+                <AuditOutlined /> 审计日志
+              </Title>
+              <Paragraph>
+                左侧导航最下面的<Text strong>「审计日志」</Text>回答同一类问题：<Text strong>这件事是谁干的？</Text>
+                发布卷子、改分数开关、重置密码、撤销违规、导出成绩、清空题库——凡是会改变数据或把数据带出系统的动作，都会留一条记录。
+              </Paragraph>
+              <Space direction="vertical" size={6} style={{ marginBottom: 12 }}>
+                <Text>
+                  · 每条记录包含：<Text strong>时间、操作人（含当时的角色）、动作、对象、详情、来源 IP</Text>。
+                </Text>
+                <Text>
+                  · <Text strong>名字是快照</Text>：账号后来改了名、甚至被删了，日志里仍然是当时那个名字——
+                  不然「谁删的」这条线索会跟着账号一起消失。
+                </Text>
+                <Text>
+                  · 分级三档：<Tag>日常</Tag> 量最大；<Tag color="orange">敏感</Tag> 涉及权限、成绩、导出；
+                  <Tag color="red">高危</Tag> 是删数据、强制收卷、清理日志，出事之后先筛这一档。
+                </Text>
+                <Text>
+                  · <Text strong>系统动作</Text>也记：到点自动收卷会写成「系统」，学生来问「我没交怎么是超时」时能对上时间。
+                </Text>
+                <Text>
+                  · 按<Text strong>分类</Text>筛会同时把「动作」下拉收窄到该类，避免选出空组合；
+                  按<Text strong>对象</Text>筛能拉出一份试卷从建立到归档的完整操作链。
+                </Text>
+                <Text>
+                  · 带详情的那一行可以点开看完整 JSON，例如「status: active → disabled」。
+                </Text>
+              </Space>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="这里没有学生的答题流水"
+                description="谁在什么时候开了考、交了什么答案，答卷表本身就有时间戳，翻「我的答卷」或成绩册更直接。审计日志只收管理动作，不然一学期下来几十万条答题记录会把真正要查的几条埋掉。"
+              />
+              <Alert
+                type="warning"
+                showIcon
+                message="清理日志属于高危操作"
+                description="清理会删掉指定时间点之前的全部记录，不可恢复；清理动作本身会留一条「清理审计日志」，而且这条永远删不掉。上级检查、校内申诉都可能倒查一年以前的操作，动手前先确认学校对留档期限的要求。"
               />
             </Card>
           )}
