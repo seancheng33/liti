@@ -1,7 +1,7 @@
 # 验收报告
 
 > 砺题 Liti 系统验收结果
-> 更新：2026-10-31
+> 更新：2026-11-02
 
 ## 测试总览
 
@@ -17,10 +17,55 @@
 | v0.4 界面验收（无头 Edge） | 20 | ✅ 20/20，附 8 张截图 |
 | v0.5 功能验收（接口级） | 105 | ✅ SQLite 105/105、MySQL 105/105 |
 | v0.5 界面验收（无头 Edge） | 28 | ✅ 28/28，附 9 张截图 |
-| 双库累计（v0.2–v0.5） | 278 | ✅ 全绿 |
+| v0.6 安全验收（接口级） | 63 | ✅ SQLite 63/63、MySQL 63/63 |
+| v0.7 功能验收（接口级） | 60 | ✅ SQLite 60/60、MySQL 60/60 |
+| v0.7 界面验收（无头 Edge） | 18 | ✅ 18/18，附 4 张截图 |
+| 双库累计（v0.2–v0.7） | 401 | ✅ 全绿 |
 
 - 单元 + 集成共 **74 个用例**，`pnpm test` 全绿，`tsc --noEmit` 无类型错误。
 - E2E 覆盖完整刷题链路：登录 → 建题 → 组卷 → 发布 → 答题 → 交卷 → 解析。
+
+## v0.7 功能验收（60 项，SQLite 与 MySQL 双跑）
+
+脚本：`E://workbuddy//网站优化//liti-features-v7.mjs`
+界面：`E://workbuddy//网站优化//liti-shot-v7.mjs`（18 项断言 + 4 张截图）
+
+| 分组 | 覆盖点 |
+|---|---|
+| A 每题分值与及格线 | 10 题 × 5 分 = 满分 50；全对得 50；及格线 30 时判定为及格；及格分超满分 400「及格分（60）不能超过试卷总分（50）」；未传 `perQuestionScore` 的老调用行为不变（兼容 v0.5 脚本） |
+| B 考试时间窗口 | 未到 `start_at` 开考 400 且文案带开考时刻；已过 `end_at` 开考 400；`deadline_at` 被 `end_at` 截断（实测两者完全相等）；练习卷不被截断 |
+| C 暂停权限 | 考试卷调 pause 返回 400「本场考试不允许自行暂停…」；练习卷仍可暂停与继续 |
+| D 发布控制 | 未公布成绩：`score`/`totalScore`/`correctCount` 全为 null，「我的答卷」列表同样为 null；只放分不放解析时选项 `isCorrect` 仍为 null；发布后立刻可见；学生调 `publish-results` 403 |
+| E 永不公布 | `review_mode=never` + `analysis_published=1` 组合下答案与解析依然不下发 |
+| F 强制收卷 | `POST /:id/close` 返回 `closed` 数；进行中的答卷被判分结束；`submit_reason='forced'`；前端标签显示「教师强制收卷」 |
+| G 成绩册含缺考 | `?paperId=` 导出 200 且为 xlsx；行数 = 应考人数（含未参加）；缺考行状态列「未参加」、分数空；实考行分数与「是否及格」正确；附「考试信息」表 |
+| H 删除 / 归档 | 有答卷时 DELETE 400 并提示改用归档；归档后学生列表看不到；归档后成绩册仍可导出 |
+
+> G 组的 xlsx 内容解析需要 `exceljs`，本机没有，改在容器内 `/app/server` 下跑（`docker exec -w /app/server liti node liti-features-v7.mjs`）。本机跑显示「55 通过 / 1 跳过」，容器内 60/60。
+
+### v0.7 界面验收（18 项）
+
+| # | 断言 |
+|---|---|
+| 1–5 | 试卷列表有「考试时间」「总分」列；窗口三态可见；每行有「更多」入口；「更多」能点开且含「导出成绩」「归档」 |
+| 6–11 | 新建弹窗有「每题分值」并实时显示「满分 100 分，及格线 60 分（60%）」；公布方式含「考完统一公布」；有开考时间、结束时间、学生可自行暂停开关 |
+| 12–15 | 学生看未公布成绩的答卷：提示「成绩尚未公布」「答案与解析暂不公布」，页面不出现具体分数 |
+| 16–18 | 首页卡片显示满分；未开考的卷子有状态提示 |
+
+截图存于 `E://workbuddy//网站优化//shots-v7//`（01 试卷列表、02 新建试卷、03 答卷-成绩未公布、04 首页-未开考）。
+
+## v0.6 安全验收（63 项，SQLite 与 MySQL 双跑）
+
+脚本：`E://workbuddy//网站优化//liti-sec.mjs`，详见 `docs/security.md`。
+
+| 分组 | 覆盖点 |
+|---|---|
+| A 认证与会话 | 未登录 401、错误密码、停用账号 403、会话 cookie 属性 |
+| B 越权访问 | 学生读他人答卷 404、改他人答案 404、教师越权碰管理员 403、停用账号持旧 cookie 亦 403 |
+| C 注入与输入 | SQL 注入串、超长字段、非法 JSON、越界分页 |
+| D 信息泄露与响应头 | `nosniff` / `X-Frame-Options` / `Referrer-Policy`；错误响应不泄露堆栈与内部路径 |
+| E 业务逻辑 | 作答次数上限不可绕过、暂停中不判分、练习卷归属校验 |
+| F 会话生命周期 | 改密后旧会话失效、当前设备重发 cookie 不掉线、管理员重置密码清会话 |
 
 ## v0.5 功能验收（105 项，SQLite 与 MySQL 双跑）
 
@@ -159,6 +204,14 @@
 | 38 | 学生分组 + 按分组设可见范围 | `student_group` / `paper_audience_group`，加人立即生效 | v0.5 验收 + 界面 1–8 |
 | 39 | 教师可添加/管理学生 | users 路由放开 teacher 并加「只能管学生」边界 | v0.5 验收 + 界面 11–14 |
 | 40 | 题库导出 | `GET /api/questions/export`，12 列与模板一致，可回导 | v0.5 验收（含闭环） |
+| 41 | 全面安全测试与加固 | 停用账号校验收进 `authenticate()`、试卷可见性收口、练习卷归属校验、登录双维度限流、改密清会话、安全响应头、字段长度上限 | v0.6 安全验收 63 项双库全绿 |
+| 42 | 考试时间窗口 | `paper.start_at` / `end_at`，未到点/已结束拒绝开考，`deadline_at` 取 `min(时长, end_at)` | v0.7 验收 B 组 + 界面 3 |
+| 43 | 统一收卷 | `POST /api/papers/:id/close` 强制收卷 + 30s sweeper 自动收卷 | v0.7 验收 F 组 |
+| 44 | 禁止学生自行暂停 | `paper.allow_student_pause`，考试卷 pause 返回 400 | v0.7 验收 C 组 + 界面 11 |
+| 45 | 成绩与解析受控发布 | `results_published` / `analysis_published` / `review_mode=never` 三开关；未发布时分数与对错一律 `null` | v0.7 验收 D / E 组 + 界面 12–15 |
+| 46 | 及格判定与每题分值 | `per_question_score` 落库，前端改 `score >= passScore` 绝对分判定，及格分超总分 400 | v0.7 验收 A 组 + 界面 6–7 |
+| 47 | 成绩册含缺考 + 按场次导出 | `?paperId=` 以应考名单左连接答卷，缺考标「未参加」，附「考试信息」表 | v0.7 验收 G 组 |
+| 48 | 有答卷的试卷改归档 | DELETE 先数答卷返回 400 引导归档；归档后学生不可见、成绩可导出 | v0.7 验收 H 组 + 界面 5 |
 
 ## 数据库
 
@@ -189,6 +242,13 @@
 15. **分组是引用不是快照**：改分组会立刻影响所有挂了该分组的已发布试卷。这是设计目标，但反过来说——把学生踢出一个组，他手上正在做的卷子会立刻打不开（进行中的答卷仍可继续，因为开考时已经校验过了）。
 16. **教师能管学生但不能管同伴**：教师无法创建教师/管理员、无法修改任何账号的角色、无法重置管理员密码。这条边界在服务端，前端隐藏按钮只是辅助。
 17. **题库导出不含配图**：导出用 12 列（与导入模板一致）以保证「导出→改→导入」闭环，代价是题干/选项配图不会出现在表格里。需要连图备份时请直接备份数据库与 `data/uploads`。
+18. **考试时间窗口只管「开考」与「截止」**：`start_at` 之前学生打不开卷、`end_at` 之后不能再开考，但**已经在答题的人**不会被立刻踢出去——他们的 `deadline_at` 在建卷时就被截断到 `end_at`，靠倒计时与 sweeper 收口。要「立刻清场」用强制收卷 `POST /:id/close`。
+19. **sweeper 是单进程定时器**：30 秒扫一次，且只在服务进程活着时跑。多实例部署时每个实例都会扫（幂等，不会重复判分，因为判分前会先确认 `status='in_progress'`），但扫的节奏仍受进程数影响。服务停机期间到点的答卷，重启后第一轮扫描补判。
+20. **「未公布成绩」不等于「答完看不到任何东西」**：学生仍能看到自己选了什么、题目标记、交卷状态，只是分数与对错为 `null`。这是刻意的——连题都不给看会让考生怀疑卷子丢了。
+21. **`review_mode=never` 是单程开关**：设了永不公布，后续即使把 `analysis_published` 打开也不会下发答案，必须先改 `review_mode`。
+22. **每题分值只有一档**：`per_question_score` 是整卷统一分值，`paper_item.score` 理论上可以逐题不同，但 UI 与导入都只提供统一入口。要「前 5 题 2 分、后 5 题 4 分」得直接改库或加新入口。
+23. **成绩册的「应考名单」是导出那一刻算的**：导出前把学生移出分组，他就从表里消失了；导出后归档试卷不影响已导出的文件。要留底请导出后自行存档。
+24. **归档不是删除**：`status='archived'` 只影响列表可见性与组卷引用，答卷、判分、错题记录全在。真要清数据得手工动库（且会破坏成绩可追溯性）。
 
 ## 复现测试
 
@@ -204,6 +264,14 @@ pnpm test:e2e      # E2E（需服务已启动）
 接口级版本验收（针对 Docker 部署实例，需先起服务）：
 
 ```bash
+# v0.7（60 项，双库各跑一遍）
+LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v7.mjs
+LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v7.mjs
+
+# v0.6 安全（63 项，双库各跑一遍）
+LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-sec.mjs
+LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-sec.mjs
+
 # v0.5（105 项，双库各跑一遍）
 LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v6.mjs
 LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v6.mjs
@@ -216,16 +284,18 @@ LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-
 LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v4.mjs
 LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v3.mjs
 
-# 界面验收（无头 Edge，跑完出图到 shots-v6/）
-node E:/workbuddy/网站优化/liti-shot-v6.mjs
+# 界面验收（无头 Edge，跑完出图到 shots-v7/）
+LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v7.mjs
 ```
 
 > 脚本的目标地址读环境变量 `LITI_BASE`（不是命令行参数）。
 > ExcelJS 模板解析那几项在本机没有 exceljs 时会跳过；要拿满数按下面在容器里跑：
 >
 > ```bash
-> docker cp liti-features-v6.mjs liti:/app/server/_t6.mjs
-> docker exec -w /app/server liti env LITI_BASE=http://127.0.0.1:8080 node _t6.mjs
+> docker cp liti-features-v7.mjs liti:/app/server/_t7.mjs
+> docker exec -w /app/server liti env LITI_BASE=http://127.0.0.1:8080 node _t7.mjs
 > ```
+>
+> 跑完记得删掉容器里的脚本：`docker exec liti rm -f /app/server/_t7.mjs`。
 
 镜像自建流程见 [`docker-build.md`](./docker-build.md)，部署上线流程见 [`deployment.md`](./deployment.md)。

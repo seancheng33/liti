@@ -30,6 +30,11 @@ export interface PaperPreviewMeta {
   shuffleOptions: boolean;
   status?: string;
   categories?: string[];
+  /** 每题分值与总分：及格分是绝对分，没有总分就看不出 60 到底合不合理 */
+  perQuestionScore?: number;
+  totalScore?: number;
+  startAt?: number | null;
+  endAt?: number | null;
 }
 
 export interface PaperPreview extends PaperPreviewMeta {
@@ -138,6 +143,10 @@ export async function previewPaperById(db: Db, paperId: number): Promise<PaperPr
     reviewMode: paper.review_mode,
     shuffleOptions: paper.shuffle_options === 1,
     status: paper.status,
+    perQuestionScore: paper.per_question_score,
+    totalScore: items.length * paper.per_question_score,
+    startAt: paper.start_at,
+    endAt: paper.end_at,
     categories: await paperCategoryNames(db, paperId),
     items: await previewItemsInOrder(db, items.map((i) => i.question_id)),
   };

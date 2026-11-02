@@ -40,7 +40,9 @@ export default function MyAttemptsPage() {
       title: '得分',
       dataIndex: 'score',
       width: 170,
-      render: (s: number, r: AttemptSummary) => {
+      render: (s: number | null, r: AttemptSummary) => {
+        // 老师还没放分：不报分数，避免先考的人把分传出去
+        if (s == null) return <Typography.Text type="secondary">待公布</Typography.Text>;
         const percent = r.total_score ? Math.round((s / r.total_score) * 100) : 0;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -58,7 +60,12 @@ export default function MyAttemptsPage() {
         );
       },
     },
-    { title: '答对', dataIndex: 'correct_count', width: 90, render: (c: number, r: AttemptSummary) => `${c}/${r.question_count}` },
+    {
+      title: '答对',
+      dataIndex: 'correct_count',
+      width: 90,
+      render: (c: number | null, r: AttemptSummary) => (c == null ? '—' : `${c}/${r.question_count}`),
+    },
     {
       title: '状态',
       dataIndex: 'status',

@@ -336,11 +336,13 @@ export default function ExamPage() {
               </Button>
             ) : (
               <>
-                <Tooltip title="暂停后计时停止，试卷内容会被隐藏">
-                  <Button size="large" icon={<PauseCircleOutlined />} loading={pausing} onClick={confirmPause}>
-                    暂停
-                  </Button>
-                </Tooltip>
+                {review?.allowPause !== false && (
+                  <Tooltip title="暂停后计时停止，试卷内容会被隐藏">
+                    <Button size="large" icon={<PauseCircleOutlined />} loading={pausing} onClick={confirmPause}>
+                      暂停
+                    </Button>
+                  </Tooltip>
+                )}
                 <Button type="primary" danger size="large" loading={submitting} onClick={confirmSubmit}>
                   交卷
                 </Button>
@@ -382,7 +384,11 @@ export default function ExamPage() {
               onClose={() => setShowTip(false)}
               style={{ marginTop: 16 }}
               message="答案会自动保存，不用手动提交每一步"
-              description="切到别的窗口或标签页会被记为违规，累计 3 次自动强制交卷；需要离开一下可以点「暂停」，计时会停住。倒计时结束也会自动交卷，已答的题照常判分。"
+              description={
+                review?.allowPause === false
+                  ? '本场考试不允许自行暂停，倒计时会一直走。切到别的窗口或标签页会被记为违规，累计 3 次自动强制交卷。倒计时结束会自动交卷，已答的题照常判分。'
+                  : '切到别的窗口或标签页会被记为违规，累计 3 次自动强制交卷；需要离开一下可以点「暂停」，计时会停住。倒计时结束也会自动交卷，已答的题照常判分。'
+              }
             />
           )}
 
@@ -556,7 +562,11 @@ export default function ExamPage() {
         <Result
           status="warning"
           title="检测到你离开了答题页"
-          subTitle={`本次已记为违规（第 ${violations} 次，共 3 次机会）。计时没有暂停，累计 3 次会自动强制交卷；需要离开一会儿请用「暂停」。`}
+          subTitle={
+            review?.allowPause === false
+              ? `本次已记为违规（第 ${violations} 次，共 3 次机会）。本场考试不允许暂停，计时不会停，累计 3 次会自动强制交卷。`
+              : `本次已记为违规（第 ${violations} 次，共 3 次机会）。计时没有暂停，累计 3 次会自动强制交卷；需要离开一会儿请用「暂停」。`
+          }
         />
       </Modal>
     </div>

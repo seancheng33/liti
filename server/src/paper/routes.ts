@@ -6,6 +6,7 @@ import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
 import { previewItemsInOrder, previewPaperById } from './preview.js';
 import { validatePaperInput } from './validate.js';
+import { closePaperAttempts } from '../attempt/service.js';
 import * as service from './service.js';
 
 const ruleSchema = z.object({
@@ -16,14 +17,26 @@ const paperSchema = z.object({
   title: z.string().min(1),
   mode: z.enum(['random', 'fixed']),
   durationSec: z.number().int().min(1),
-  passScore: z.number().int().min(0).max(100).optional(),
-  reviewMode: z.enum(['after_submit', 'immediate']).optional(),
+  passScore: z.number().int().min(0).max(10000).optional(),
+  reviewMode: z.enum(['after_submit', 'immediate', 'never']).optional(),
   shuffleOptions: z.boolean().optional(),
   randomRules: z.array(ruleSchema).optional(),
   questionIds: z.array(z.number().int()).optional(),
   audienceMode: z.enum(['all', 'selected']).optional(),
   audienceUserIds: z.array(z.number().int()).optional(),
   audienceGroupIds: z.array(z.number().int()).optional(),
+  /** 毫秒时间戳；不传 = 随时可考 / 不限制结束时间 */
+  startAt: z.number().int().nullable().optional(),
+  endAt: z.number().int().nullable().optional(),
+  perQuestionScore: z.number().int().min(1).max(100).optional(),
+  allowStudentPause: z.boolean().optional(),
+  resultsPublished: z.boolean().optional(),
+  analysisPublished: z.boolean().optional(),
+});
+
+const publishResultsSchema = z.object({
+  results: z.boolean().optional(),
+  analysis: z.boolean().optional(),
 });
 
 const audienceSchema = z.object({
@@ -68,13 +81,20 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     if (errors.length) throw new HttpError(400, errors.join('；'));
 
     const questionIds = await service.resolveQuestionIds(db, body);
+    const perScore = body.perQuestionScore ?? 1;
+    const totalScore = questionIds.length * perScore;
     return {
       title: body.title,
       questionCount: questionIds.length,
       durationSec: body.durationSec,
-      passScore: body.passScore ?? 60,
+      perQuestionScore: perScore,
+      totalScore,
+      // 默认 60 分只在总分够得着的时候才用，免得预览上出现「满分 10、及格 60」
+      passScore: body.passScore ?? Math.min(60, totalScore),
       reviewMode: body.reviewMode ?? 'after_submit',
       shuffleOptions: body.shuffleOptions !== false,
+      startAt: body.startAt ?? null,
+      endAt: body.endAt ?? null,
       status: 'draft',
       items: await previewItemsInOrder(db, questionIds),
     };
@@ -164,6 +184,34 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
     }
     await service.setPaperStatus(db, Number(id), 'published');
     return { ok: true };
+  });
+
+  // 归档：卷子从学生的可考列表里消失，但历史答卷与成绩全保留。
+  // 有答卷的卷子不允许物理删除（见 deletePaper），这是官方推荐的下线方式。
+  app.post('/:id/archive', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    await service.archivePaper(db, Number(id));
+    return { ok: true };
+  });
+
+  // 老师手动放分 / 放解析（正式考试：考完统一公布）
+  app.post('/:id/publish-results', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    const body = publishResultsSchema.parse(request.body ?? {});
+    return service.publishPaperResults(db, Number(id), body);
+  });
+
+  // 强制收卷：这场考试立刻结束，所有进行中的答卷按「强制收卷」判分
+  app.post('/:id/close', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    const closed = await closePaperAttempts(db, Number(id));
+    return { closed };
   });
 
   app.delete('/:id', async (request) => {

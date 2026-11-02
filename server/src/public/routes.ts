@@ -68,7 +68,7 @@ export async function publicRoutes(app: FastifyInstance, opts: { db: Db }): Prom
   app.get('/papers', async () => {
     const rows = await db
       .selectFrom('paper')
-      .select(['id', 'title', 'question_count', 'duration_sec', 'pass_score', 'review_mode', 'shuffle_options', 'created_at'])
+      .select(['id', 'title', 'question_count', 'duration_sec', 'pass_score', 'per_question_score', 'review_mode', 'shuffle_options', 'created_at', 'start_at', 'end_at'])
       .where('status', '=', 'published')
       .where('practice', '=', 0)
       // 只对指定学生可见的卷子不进公开列表 —— 未登录的人本来也考不了
@@ -85,9 +85,12 @@ export async function publicRoutes(app: FastifyInstance, opts: { db: Db }): Prom
         questionCount: r.question_count,
         durationSec: r.duration_sec,
         passScore: r.pass_score,
+        totalScore: r.question_count * r.per_question_score,
         reviewMode: r.review_mode,
         shuffleOptions: r.shuffle_options === 1,
         createdAt: r.created_at,
+        startAt: r.start_at,
+        endAt: r.end_at,
       })),
     };
   });

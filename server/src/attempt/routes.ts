@@ -39,12 +39,20 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
   });
 
   // 成绩导出（管理员 / 教师）
+  // 带 paperId = 导出这一场的成绩册（应考名单为主表，缺考也在表里）
+  // 不带 = 全站答卷流水
   app.get('/export', async (request, reply) => {
     const user = authenticate(request);
     requireRole(user, 'admin', 'teacher');
-    const buf = await exportAttemptsXlsx(db);
+    const q = request.query as Record<string, unknown>;
+    const paperId = q.paperId != null ? Number(q.paperId) : undefined;
+    if (paperId != null && (!Number.isInteger(paperId) || paperId <= 0)) throw new HttpError(400, '试卷编号无效');
+    const buf = await exportAttemptsXlsx(db, { paperId });
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    reply.header('Content-Disposition', 'attachment; filename="liti-scores.xlsx"');
+    reply.header(
+      'Content-Disposition',
+      `attachment; filename="${paperId != null ? `liti-scores-paper${paperId}` : 'liti-scores'}.xlsx"`,
+    );
     return reply.send(buf);
   });
 

@@ -44,6 +44,10 @@ export async function previewRandom(db: Db, rules: SampleRule[]): Promise<{ ques
 
 async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, questionIds: number[]): Promise<number> {
   const now = Date.now();
+  const perScore = input.perQuestionScore ?? 1;
+  const totalScore = questionIds.length * perScore;
+  // 及格分一律收敛到总分以内：不然「满分 3 分、及格 60 分」这种配置会让整张卷子永远判不及格
+  const passScore = Math.min(input.passScore ?? 60, totalScore || 60);
   const res = await db
     .insertInto('paper')
     .values({
@@ -51,13 +55,19 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       mode: input.mode,
       question_count: questionIds.length,
       duration_sec: input.durationSec,
-      pass_score: input.passScore ?? 60,
+      pass_score: passScore,
       review_mode: input.reviewMode ?? 'after_submit',
       shuffle_options: input.shuffleOptions === false ? 0 : 1,
       random_config: input.mode === 'random' ? JSON.stringify(input.randomRules ?? []) : null,
       status: 'draft',
       practice: 0,
       audience_mode: input.audienceMode ?? 'all',
+      start_at: input.startAt ?? null,
+      end_at: input.endAt ?? null,
+      allow_student_pause: input.allowStudentPause === false ? 0 : 1,
+      per_question_score: input.perQuestionScore ?? 1,
+      results_published: input.resultsPublished === false ? 0 : 1,
+      analysis_published: input.analysisPublished === false ? 0 : 1,
       created_by: userId,
       created_at: now,
       updated_at: now,
@@ -68,7 +78,7 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
   if (questionIds.length) {
     await db
       .insertInto('paper_item')
-      .values(questionIds.map((qid, i) => ({ paper_id: paperId, question_id: qid, order_no: i + 1, score: 1 })))
+      .values(questionIds.map((qid, i) => ({ paper_id: paperId, question_id: qid, order_no: i + 1, score: perScore })))
       .execute();
   }
 
@@ -340,7 +350,58 @@ export async function setPaperStatus(db: Db, id: number, status: 'draft' | 'publ
   await db.updateTable('paper').set({ status, updated_at: Date.now() }).where('id', '=', id).execute();
 }
 
+/** 归档：卷子不再出现在学生的可考列表里，但历史答卷与成绩全部保留 */
+export async function archivePaper(db: Db, id: number): Promise<void> {
+  await setPaperStatus(db, id, 'archived');
+}
+
+/** 老师手动放分 / 放解析 */
+export async function publishPaperResults(
+  db: Db,
+  id: number,
+  opts: { results?: boolean; analysis?: boolean },
+): Promise<{ resultsPublished: boolean; analysisPublished: boolean }> {
+  const paper = await db
+    .selectFrom('paper')
+    .select(['id', 'results_published', 'analysis_published'])
+    .where('id', '=', id)
+    .executeTakeFirst();
+  if (!paper) throw new HttpError(404, '试卷不存在');
+  if (opts.results == null && opts.analysis == null) {
+    throw new HttpError(400, '请指定要公布的内容（成绩或解析）');
+  }
+
+  const results = opts.results ?? paper.results_published === 1;
+  const analysis = opts.analysis ?? paper.analysis_published === 1;
+
+  await db
+    .updateTable('paper')
+    .set({ results_published: results ? 1 : 0, analysis_published: analysis ? 1 : 0, updated_at: Date.now() })
+    .where('id', '=', id)
+    .execute();
+
+  return { resultsPublished: results, analysisPublished: analysis };
+}
+
+export async function countPaperAttempts(db: Db, id: number): Promise<number> {
+  const row = await db
+    .selectFrom('attempt')
+    .select((eb) => eb.fn.countAll().as('c'))
+    .where('paper_id', '=', id)
+    .executeTakeFirstOrThrow();
+  return Number(row.c);
+}
+
+/**
+ * 删除试卷。
+ * 只要有过答卷就不允许物理删除 —— 成绩必须可追溯，删了卷子历史成绩就成了孤儿。
+ * 这种情况引导用户走「归档」。
+ */
 export async function deletePaper(db: Db, id: number): Promise<void> {
+  const used = await countPaperAttempts(db, id);
+  if (used > 0) {
+    throw new HttpError(400, `这份试卷已有 ${used} 份答卷，不能删除（成绩需要可追溯）；请改用「归档」，学生会看不到但成绩保留`);
+  }
   await db.transaction().execute(async (trx) => {
     await trx.deleteFrom('paper_audience').where('paper_id', '=', id).execute();
     await trx.deleteFrom('paper_audience_group').where('paper_id', '=', id).execute();

@@ -88,7 +88,7 @@
 | `category` | id, name, parent_id, sort |
 | `question` | id, type(single/multiple), stem, images(JSON), explanation, category_id, tags(JSON), status(active/archived), content_hash, created_by, created_at, updated_at |
 | `question_option` | id, question_id, content, images(JSON), is_correct, sort_order |
-| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, **practice_source(random/wrong)**, **audience_mode(all/selected)**, created_by |
+| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, practice_source(random/wrong), audience_mode(all/selected), **start_at**, **end_at**, **allow_student_pause**, **per_question_score**, **results_published**, **analysis_published**, created_by |
 | `paper_item` | id, paper_id, question_id, order_no, score |
 | `paper_audience` | id, paper_id, user_id, created_at —— 可见白名单（点名到人） |
 | `paper_audience_group` | id, paper_id, group_id, created_at —— 可见白名单（挂整个分组） |
@@ -102,6 +102,7 @@
 
 > v0.4 新增字段：`attempt.paused_at` / `paused_total_ms`、`attempt_item.flagged`、`paper.audience_mode` + `paper_audience`（迁移 `0008_exam_enhance`）。
 > v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
+> v0.7 新增：`paper.start_at` / `end_at` / `allow_student_pause` / `per_question_score` / `results_published` / `analysis_published`（迁移 `0010_exam_window`）；同期加索引 `idx_attempt_status_deadline`、`idx_attempt_paper`，给 30s 一次的自动收卷扫描用。
 
 **可移植性约定（SQLite / MySQL 双库关键）**
 
@@ -244,6 +245,66 @@
 - `user` 表带 `provider` + `external_id`，唯一键 `(provider, external_id)`；会话签发与认证方式解耦。
 - 接入标准 OIDC 只需配置 issuer / clientId / clientSecret / redirectUri，不改代码；支持关闭本地密码登录、强制 SSO。
 
+### 6.8 正式考试场景（v0.7）
+
+前面那套是练习平台和当堂小测的底子，直接搬去当统考系统会漏东西——不是功能不够，是**考点没管住**。v0.7 补的六件事：
+
+#### 6.8.1 考试时间窗口
+
+- `paper.start_at` / `paper.end_at` 都是可空的 epoch 毫秒，都空 = 老行为（随时可考）。
+- 开考校验：未到 `start_at` 返回 400「考试还没开始（YYYY-MM-DD HH:mm 开考）」，已过 `end_at` 返回 400「考试已经结束」。
+- **截止时间取小**：`deadline_at = min(now + duration_sec * 1000, end_at)`。设 60 分钟但离考场关闭只剩 20 分钟，实际只给 20 分钟，不会出现「允许答到考场关门之后」。
+- 练习卷（`practice=1`）不受 `end_at` 截断。
+
+#### 6.8.2 收卷：手动 + 自动
+
+- 教师手动：`POST /api/papers/:id/close` 把该卷所有 `status='in_progress'` 的答卷立即判分，`submit_reason='forced'`，返回 `{ closed }`。
+- 系统兜底：进程内 30 秒一次的 sweeper 扫 `status='in_progress' AND deadline_at <= now AND paused_at IS NULL`，按已存答案判分（`expired`），单轮上限 200 条。
+  - 用 `setInterval().unref()` 而不是 Fastify 钩子：`listen()` 之后再 `addHook()` 会抛 `Fastify instance is already listening`，进程直接崩（踩过一次，容器无限重启就是这么来的）。
+  - `paused_at IS NULL` 这个条件不能少，否则暂停中的答卷会被当成超时判掉。
+- 上线首次扫描顺手清掉了 41 份历史僵尸答卷（以前服务端重启留下的 `in_progress`）。
+
+#### 6.8.3 暂停权限
+
+- `paper.allow_student_pause` 默认 1。设 0 后 `POST /api/attempts/:id/pause` 直接 400「本场考试不允许自行暂停，如有特殊情况请联系监考老师」。
+- 前端按 `review.allowPause` 决定渲不渲染暂停按钮，但**服务端才是裁判**，改前端没用。
+- 练习卷不受影响。
+
+#### 6.8.4 成绩与解析分开发布
+
+以前一个 `review_mode` 把「给不给分」和「给不给答案」揉在一起，考场纪律上不够用。v0.7 拆成三个开关：
+
+| 字段 | 作用 | 默认 |
+|---|---|---|
+| `results_published` | 学生能不能看到分数 | 1 |
+| `analysis_published` | 学生能不能看到对错与解析 | 1 |
+| `review_mode='never'` | 这卷永远不给答案（**优先级最高**） | — |
+
+- 未发布时 `getAttemptReview` 里 `score` / `totalScore` / `correctCount` 一律 `null`，每题的 `isCorrect` / `score` 也是 `null`；`listMyAttempts` 同样屏蔽（列表里别人的分数不能成漏点）。
+- `review_mode='never'` 压过 `analysis_published=1`——设了永不给答案就一定不给。
+- 学生调 `POST /:id/publish-results` 一律 403。
+- **前端拿到 `null` 必须显示「未公布」，不能 `score ?? 0`**——那等于把没公布的卷子显示成 0 分，学生当场投诉。
+
+#### 6.8.5 及格判定与每题分值
+
+- 旧逻辑前端写死 `percent >= 60`，及格线跟着题数漂：10 题错 4 题（60 分）算过，5 题卷子 3 分（60%）也算过，但 5 题卷子考 3 分其实只对了一半多一点。v0.7 改**绝对分比较** `score >= passScore`，`passScore` 由服务端下发。
+- `per_question_score` 落在每条 `paper_item.score`，总分 = 题量 × 每题分值。
+- 写入时及格分一律收敛为 `min(passScore, totalScore)`，避免「满分 50、及格线 60」这种永远不及格的卷子。显式传了 `perQuestionScore` 的场景下，及格分超总分直接 400 拒掉。
+
+#### 6.8.6 成绩册要能交差
+
+`GET /api/attempts/export?paperId=` 导出的 xlsx 以**应考名单为主表左连接答卷**：
+
+- 应考名单：`audience_mode='all'` 取全体学生，否则点名 ∪ 所属分组（分组是引用不是快照，组里加人立刻算进来）。
+- **缺考的行照样在表里**，状态列写「未参加」，分数列留空。教务要的是「应考 40 实考 38」，不是「38 条记录」。
+- 第二张「考试信息」表给应考 / 已交 / 缺考 / 及格人数与及格率。
+- 不带 `paperId` 时仍是全站答卷流水（逐条列）。
+
+#### 6.8.7 有成绩的卷子不能物理删除
+
+- `DELETE /api/papers/:id` 先数答卷。有答卷返回 400「这份试卷已有 N 份答卷，不能删除（成绩需要可追溯）；请改用『归档』」。
+- 归档 `POST /:id/archive` → `status='archived'`：学生列表里消失，成绩册照样能导出，答卷与判分记录全留。这是唯一能「下线」又不丢历史的方式。
+
 ---
 
 ## 7. API 设计（草案）
@@ -292,6 +353,9 @@ PUT          /api/papers/:id/audience        # { audienceMode, audienceUserIds, 
 POST         /api/papers/random-preview      # 抽样题号预览（不落库）
 POST         /api/papers/draft-preview       # 新建时按表单入参预览整卷（不落库）
 GET          /api/papers/:id/preview         # 已存在试卷预览（草稿也可，需教师/管理员）
+POST         /api/papers/:id/archive         # 归档：学生看不到，成绩与答卷全留
+POST         /api/papers/:id/publish-results # { results?, analysis? } 分开发布成绩 / 解析
+POST         /api/papers/:id/close           # 强制收卷：所有进行中的答卷立即判分
 
 # 学生名册（发布挑人 / 建组挑人；只给 id/用户名/显示名）
 GET          /api/users/students
@@ -305,8 +369,9 @@ POST         /api/attempts/:id/pause         # 暂停：停表 + 服务端屏蔽
 POST         /api/attempts/:id/resume        # 继续：deadline 按暂停时长顺延
 POST         /api/attempts/:id/violations    # 违规上报（暂停中忽略）
 POST         /api/attempts/:id/submit        # 交卷
-GET          /api/attempts/:id/review        # 结果与解析
+GET          /api/attempts/:id/review        # 结果与解析（未发布时分数/对错一律 null）
 GET          /api/attempts?mine=1            # 我的记录
+GET          /api/attempts/export            # 全站答卷流水 xlsx；?paperId= 导出单场成绩册（含缺考）
 
 # 系统
 GET  /api/health
@@ -399,6 +464,17 @@ GET  /api/meta
 | `AppLayout` | 菜单新增「练习中心」「错题本」（所有角色）、「学生分组」（admin/teacher）；「用户管理」对教师显示为「学生管理」。 |
 | `HelpPage` | 新增「练习中心与错题本」「学生分组与账号」两章；角色表与发布说明同步更新；FAQ 新增「错题是怎么进来的」「分组和指定学生的区别」「导出的表格能改完再导回去吗」。 |
 
+### 8.8 v0.7 页面变化
+
+| 页面 | 说明 |
+|---|---|
+| `PapersPage` | 新建弹窗加「每题分值」「考试组织（开考/结束时间 + 学生可自行暂停）」；「公布方式」四选一（交卷后公布 / 考完统一公布 / 答题中即时反馈 / 永不公布）拆成 `reviewMode` + `resultsPublished` + `analysisPublished` 三个字段提交；实时显示「N 题 × X 分 = 满分 Y 分，及格线 Z 分（P%）」。列表列改成「题量 · 总分」「考试时间（三态 Tag + 时间区间）」「可见」；操作列只留预览与开始答题，收卷 / 公布 / 导出成绩 / 归档 / 删除收进「更多」下拉（九个链接平铺会撑爆一行）。 |
+| `ReviewPage` | 成绩未公布时显示「成绩尚未公布」，解析未公布时显示「答案与解析暂不公布」；选项配色分三态——绿=正确答案、红=你选错的、橙标记=你选的（**未公布时底色走中性灰，不能用主题色，本项目主题色本身就是绿，涂上去像答对**）；得分未公布显示「得分未公布」而不是 0。及格判定改 `score >= passScore`。 |
+| `ExamPage` | `review.allowPause === false` 时不渲染暂停按钮，两处提示文案按权限分支。 |
+| `MyAttemptsPage` | 分数为 `null` 显示「待公布」，答对数为 `null` 显示「—」。 |
+| `HomePage` | 试卷卡片显示「满分 X · 及格 Y」；未到开考 / 已结束给出提示，开始按钮按时间窗口禁用。 |
+| `PaperPreviewModal` | 显示「满分 X · 及格 Y」；`reviewMode` 文案支持 `never`（永不公布）。 |
+
 ---
 
 ## 9. 测试策略与门禁
@@ -429,6 +505,8 @@ GET  /api/meta
 | M5 门面与导览（v0.3） | 公开接口、首页免登录门面、试卷预览三入口、Excel 题型下拉与批注、站内帮助文档、全站提示信息 | 49 项验收脚本双库全绿 + 界面截图复查 |
 | M6 考试体验与控制（v0.4） | 登录跳转回跳、题库批量操作、题目软删除、3 次作答上限、暂停/继续、试卷可见范围、题目标记、切屏检测修复、镜像自建文档 | 84 项验收脚本双库全绿 + 20 项界面验收 + 8 张截图复查 |
 | M7 练习与组织（v0.5） | 练习中心（随机 + 错题）、独立错题库、错题练习卷、学生分组、分组可见范围、教师管理学生、题库导出 | 105 项验收脚本双库全绿 + 28 项界面验收 + 9 张截图复查 |
+| M8 安全加固（v0.6） | 会话状态校验、试卷可见性收口、练习卷归属校验、登录双维度限流、改密清会话、安全响应头、字段长度上限 | 63 项安全用例双库全绿 |
+| M9 正式考试场景（v0.7） | 考试时间窗口与统一收卷、禁学生自暂停、成绩与解析分开发布、每题分值与绝对分及格判定、含缺考的成绩册、有答卷改归档 | 60 项验收脚本双库全绿 + 18 项界面验收 + 4 张截图复查 |
 
 ---
 

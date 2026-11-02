@@ -17,7 +17,12 @@ interface PaperPreviewModalProps {
  * 首页看已发布试卷、教师端新建试卷时看草稿，都用这一个弹窗。
  */
 export default function PaperPreviewModal({ open, preview, loading, onClose, extra }: PaperPreviewModalProps) {
-  const reviewModeText = preview?.reviewMode === 'immediate' ? '答完每题即时看解析' : '交卷后统一看解析';
+  const reviewModeText =
+    preview?.reviewMode === 'immediate'
+      ? '答完每题即时看解析'
+      : preview?.reviewMode === 'never'
+        ? '不公布答案与解析'
+        : '交卷后统一看解析';
 
   return (
     <Modal
@@ -69,7 +74,7 @@ export default function PaperPreviewModal({ open, preview, loading, onClose, ext
               {Math.round(preview.durationSec / 60)} 分钟
             </Tag>
             <Tag icon={<FlagOutlined />} color="green">
-              及格 {preview.passScore} 分
+              满分 {preview.totalScore ?? preview.questionCount} · 及格 {preview.passScore}
             </Tag>
             <Tag color="purple">{reviewModeText}</Tag>
             {preview.shuffleOptions && <Tag color="cyan">选项乱序</Tag>}

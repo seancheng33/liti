@@ -28,6 +28,15 @@ import { type PaperPreview, type PublicOverview, type PublicPaper } from '../typ
  * 首页：未登录也能看统计和已发布试卷，点「开始答题」才提示登录。
  * 登录后用 AppLayout 包起来，和站内其它页面保持同一套导航。
  */
+
+/** 试卷的三态：未到开考时间 / 可考 / 已结束 */
+function paperWindow(p: PublicPaper): 'before' | 'open' | 'after' {
+  const now = Date.now();
+  if (p.startAt != null && now < p.startAt) return 'before';
+  if (p.endAt != null && now >= p.endAt) return 'after';
+  return 'open';
+}
+
 export default function HomePage() {
   const { user, loading } = useAuth();
   const [overview, setOverview] = useState<PublicOverview | null>(null);
@@ -362,16 +371,37 @@ function HomeContent({ overview, papers, loading, loggedIn, onPreview, onStart, 
                     <ClockCircleOutlined /> {Math.round(p.durationSec / 60)} 分钟
                   </Typography.Text>
                   <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                    <FlagOutlined /> 及格 {p.passScore} 分
+                    <FlagOutlined /> 满分 {p.totalScore ?? p.questionCount} · 及格 {p.passScore}
                   </Typography.Text>
+                  {paperWindow(p) !== 'open' && (
+                    <Typography.Text type={paperWindow(p) === 'before' ? 'warning' : 'secondary'} style={{ fontSize: 13 }}>
+                      {paperWindow(p) === 'before' ? '未到开考时间' : '已结束'}
+                    </Typography.Text>
+                  )}
                 </Space>
                 <div className="liti-paper-actions" onClick={(e) => e.stopPropagation()}>
                   <Button size="small" type="text" onClick={() => onPreview(p.id)}>
                     预览卷面
                   </Button>
-                  <Tooltip title={loggedIn ? '开始计时作答' : '需要先登录'}>
-                    <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => onStart(p.id)}>
-                      开始答题
+                  <Tooltip
+                    title={
+                      !loggedIn
+                        ? '需要先登录'
+                        : paperWindow(p) === 'before'
+                          ? '还没到开考时间'
+                          : paperWindow(p) === 'after'
+                            ? '这场考试已经结束了'
+                            : '开始计时作答'
+                    }
+                  >
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<PlayCircleOutlined />}
+                      disabled={loggedIn && paperWindow(p) !== 'open'}
+                      onClick={() => onStart(p.id)}
+                    >
+                      {paperWindow(p) === 'after' ? '已结束' : '开始答题'}
                     </Button>
                   </Tooltip>
                 </div>

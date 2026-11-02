@@ -51,9 +51,20 @@ export interface Paper {
   question_count: number;
   duration_sec: number;
   pass_score: number;
-  review_mode: 'after_submit' | 'immediate';
+  review_mode: 'after_submit' | 'immediate' | 'never';
   shuffle_options: number;
   status: 'draft' | 'published' | 'archived';
+  /** 允许开考的时间 / 统一收卷时间，null = 不限制 */
+  start_at?: number | null;
+  end_at?: number | null;
+  /** 每题分值，总分 = question_count × per_question_score */
+  per_question_score?: number;
+  /** 1 = 学生可自行暂停；0 = 考试卷，学生不能停表 */
+  allow_student_pause?: number;
+  /** 1 = 学生交卷后能看到分数 */
+  results_published?: number;
+  /** 1 = 学生能看到答案与解析 */
+  analysis_published?: number;
   audience_mode?: 'all' | 'selected';
   audience_user_ids?: number[];
   audience_group_ids?: number[];
@@ -102,9 +113,16 @@ export interface AttemptReview {
   startedAt: number;
   deadlineAt: number;
   submittedAt: number | null;
-  score: number;
-  totalScore: number;
-  correctCount: number;
+  /** 老师未公布成绩时为 null */
+  score: number | null;
+  totalScore: number | null;
+  correctCount: number | null;
+  /** 及格线（绝对分），由试卷配置决定 */
+  passScore: number;
+  resultsPublished: boolean;
+  analysisPublished: boolean;
+  /** 本场是否允许学生自行暂停 */
+  allowPause: boolean;
   submitReason: string | null;
   reviewMode?: string;
   /** 考试暂停中（题面已被服务端屏蔽） */
@@ -127,9 +145,10 @@ export interface AttemptSummary {
   id: number;
   paper_id: number;
   status: string;
-  score: number;
+  /** 老师未公布成绩时为 null */
+  score: number | null;
   total_score: number;
-  correct_count: number;
+  correct_count: number | null;
   started_at: number;
   deadline_at: number;
   submitted_at: number | null;
@@ -169,9 +188,14 @@ export interface PublicPaper {
   questionCount: number;
   durationSec: number;
   passScore: number;
+  /** 满分 = 题量 × 每题分值 */
+  totalScore: number;
   reviewMode: string;
   shuffleOptions: boolean;
   createdAt: number;
+  /** 允许开考 / 统一收卷时间，null = 不限制 */
+  startAt?: number | null;
+  endAt?: number | null;
 }
 
 /* ---------- 试卷预览（考生视角，不含答案） ---------- */
@@ -202,6 +226,10 @@ export interface PaperPreview {
   shuffleOptions: boolean;
   status?: string;
   categories?: string[];
+  perQuestionScore?: number;
+  totalScore?: number;
+  startAt?: number | null;
+  endAt?: number | null;
   items: PreviewItem[];
 }
 
@@ -218,11 +246,12 @@ export interface StatsOverview {
   correctByCategory: { category: string; total: number; correct: number; rate: number }[];
 }
 
-/** 交卷原因 → 中文文案（后端存 manual / timeout / violation） */
+/** 交卷原因 → 中文文案（后端存 manual / timeout / violation / forced） */
 export const SUBMIT_REASON_LABEL: Record<string, string> = {
   manual: '正常交卷',
   timeout: '异常：超时交卷',
   violation: '异常：违规强制交卷',
+  forced: '教师强制收卷',
 };
 
 export function submitReasonText(reason?: string | null): string {

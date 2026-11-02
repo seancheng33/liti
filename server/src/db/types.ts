@@ -74,7 +74,8 @@ export interface ImportBatchRow {
 }
 
 export type PaperMode = 'random' | 'fixed';
-export type ReviewMode = 'after_submit' | 'immediate';
+/** never = 交卷后也不公布答案与解析（多场次考试必须用它，否则第一场考完就泄题） */
+export type ReviewMode = 'after_submit' | 'immediate' | 'never';
 export type PaperStatus = 'draft' | 'published' | 'archived';
 /** all = 所有学生可见；selected = 只对 paper_audience 白名单里的学生可见 */
 export type AudienceMode = 'all' | 'selected';
@@ -94,6 +95,18 @@ export interface PaperRow {
   /** 练习卷的来源：random=随机练习，wrong=错题练习；普通试卷为 null（插入时可省略） */
   practice_source: ColumnType<'random' | 'wrong' | null, 'random' | 'wrong' | null | undefined, 'random' | 'wrong' | null>;
   audience_mode: AudienceMode;
+  /** 允许开考的时间，NULL = 随时可考 */
+  start_at: ColumnType<number | null, number | null | undefined, number | null>;
+  /** 统一收卷时间，NULL = 不限制；开考时 deadline 会按它截断 */
+  end_at: ColumnType<number | null, number | null | undefined, number | null>;
+  /** 1 = 学生可自行暂停（练习语义）；0 = 考试卷，学生不能停表 */
+  allow_student_pause: ColumnType<number, number | undefined, number>;
+  /** 每题分值，总分 = question_count × per_question_score */
+  per_question_score: ColumnType<number, number | undefined, number>;
+  /** 学生交卷后能否看到分数；0 = 等老师统一公布 */
+  results_published: ColumnType<number, number | undefined, number>;
+  /** 学生能否看到正确答案与解析；0 = 只出分不出答案 */
+  analysis_published: ColumnType<number, number | undefined, number>;
   created_by: number | null;
   created_at: number;
   updated_at: number;

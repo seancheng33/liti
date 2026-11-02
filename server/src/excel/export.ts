@@ -1,5 +1,8 @@
 import ExcelJS from 'exceljs';
+import type { Selectable } from 'kysely';
 import type { Db } from '../db/index.js';
+import type { AttemptRow } from '../db/types.js';
+import { HttpError } from '../http-error.js';
 import { TEMPLATE_HEADERS } from './template.js';
 
 const STATUS_LABEL: Record<string, string> = { in_progress: '进行中', submitted: '已交卷', expired: '已超时' };
@@ -7,6 +10,7 @@ export const REASON_LABEL: Record<string, string> = {
   manual: '正常交卷',
   timeout: '异常：超时交卷',
   violation: '异常：违规强制交卷',
+  forced: '教师强制收卷',
 };
 
 function fmt(ms: number): string {
@@ -15,7 +19,17 @@ function fmt(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-export async function exportAttemptsXlsx(db: Db): Promise<Buffer> {
+export interface ExportScoresFilter {
+  /** 指定试卷则导出「该场考试的成绩册」：以应考名单为主表，缺考的也在表里 */
+  paperId?: number;
+}
+
+export async function exportAttemptsXlsx(db: Db, filter: ExportScoresFilter = {}): Promise<Buffer> {
+  if (filter.paperId != null) return exportPaperScores(db, filter.paperId);
+  return exportAllAttempts(db);
+}
+
+async function exportAllAttempts(db: Db): Promise<Buffer> {
   const rows = await db
     .selectFrom('attempt')
     .innerJoin('user', 'user.id', 'attempt.user_id')
@@ -68,6 +82,128 @@ export async function exportAttemptsXlsx(db: Db): Promise<Buffer> {
       submit_reason: r.submit_reason ? (REASON_LABEL[r.submit_reason] ?? r.submit_reason) : '',
     });
   }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+/**
+ * 单场考试的成绩册。
+ *
+ * 关键差别：**以「应考名单」为主表左连接答卷**，而不是拿 attempt 当主表。
+ * 后者会让缺考的人凭空消失 —— 教务拿到表以后还得手工比对名单补人，
+ * 而「谁没来考」恰恰是成绩册上最需要一眼看出来的信息。
+ */
+async function exportPaperScores(db: Db, paperId: number): Promise<Buffer> {
+  const paper = await db
+    .selectFrom('paper')
+    .select(['id', 'title', 'audience_mode', 'question_count', 'pass_score', 'per_question_score'])
+    .where('id', '=', paperId)
+    .executeTakeFirst();
+  if (!paper) throw new HttpError(404, '试卷不存在');
+
+  // 应考名单：全体学生，或「点名 ∪ 分组」的并集
+  type RosterUser = { id: number; username: string; display_name: string };
+  let roster: RosterUser[];
+  if (paper.audience_mode === 'all') {
+    roster = await db
+      .selectFrom('user')
+      .select(['id', 'username', 'display_name'])
+      .where('role', '=', 'student')
+      .orderBy('username', 'asc')
+      .execute();
+  } else {
+    const direct = await db
+      .selectFrom('paper_audience as pa')
+      .innerJoin('user as u', 'u.id', 'pa.user_id')
+      .select(['u.id as id', 'u.username as username', 'u.display_name as display_name'])
+      .where('pa.paper_id', '=', paperId)
+      .execute();
+    const viaGroup = await db
+      .selectFrom('paper_audience_group as pag')
+      .innerJoin('student_group_member as m', 'm.group_id', 'pag.group_id')
+      .innerJoin('user as u', 'u.id', 'm.user_id')
+      .select(['u.id as id', 'u.username as username', 'u.display_name as display_name'])
+      .where('pag.paper_id', '=', paperId)
+      .execute();
+    const merged = new Map<number, RosterUser>();
+    for (const u of [...direct, ...viaGroup]) merged.set(u.id, u);
+    roster = [...merged.values()].sort((a, b) => a.username.localeCompare(b.username));
+  }
+
+  // 每人取最近一次答卷（补考/重考以最后一次为准）
+  const attempts = await db
+    .selectFrom('attempt')
+    .selectAll()
+    .where('paper_id', '=', paperId)
+    .orderBy('id', 'desc')
+    .execute();
+  const latest = new Map<number, Selectable<AttemptRow>>();
+  for (const a of attempts) if (!latest.has(a.user_id)) latest.set(a.user_id, a);
+
+  const totalScore = paper.question_count * paper.per_question_score;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('成绩册');
+  ws.columns = [
+    { header: '用户名', key: 'username', width: 16 },
+    { header: '姓名', key: 'display_name', width: 16 },
+    { header: '成绩', key: 'score', width: 10 },
+    { header: '总分', key: 'total_score', width: 10 },
+    { header: '是否及格', key: 'passed', width: 10 },
+    { header: '答对', key: 'correct_count', width: 10 },
+    { header: '题数', key: 'question_count', width: 10 },
+    { header: '状态', key: 'status', width: 12 },
+    { header: '开始时间', key: 'started_at', width: 22 },
+    { header: '交卷时间', key: 'submitted_at', width: 22 },
+    { header: '交卷原因', key: 'submit_reason', width: 14 },
+  ];
+  ws.getRow(1).font = { bold: true };
+
+  let finished = 0;
+  let passedCount = 0;
+  for (const u of roster) {
+    const a = latest.get(u.id);
+    const graded = a && (a.status === 'submitted' || a.status === 'expired');
+    if (graded) {
+      finished++;
+      if (a.score >= paper.pass_score) passedCount++;
+    }
+    ws.addRow({
+      username: u.username,
+      display_name: u.display_name,
+      score: graded ? a.score : '',
+      total_score: totalScore,
+      passed: graded ? (a.score >= paper.pass_score ? '及格' : '不及格') : '',
+      correct_count: graded ? a.correct_count : '',
+      question_count: paper.question_count,
+      status: !a ? '未参加' : (STATUS_LABEL[a.status] ?? a.status),
+      started_at: a ? fmt(a.started_at) : '',
+      submitted_at: a?.submitted_at ? fmt(a.submitted_at) : '',
+      submit_reason: a?.submit_reason ? (REASON_LABEL[a.submit_reason] ?? a.submit_reason) : '',
+    });
+  }
+
+  // 第二张表：这场考试的基本盘，省得教务再算一遍
+  const info = wb.addWorksheet('考试信息');
+  info.columns = [
+    { header: '项目', key: 'k', width: 18 },
+    { header: '值', key: 'v', width: 32 },
+  ];
+  info.getRow(1).font = { bold: true };
+  info.addRow({ k: '试卷', v: paper.title });
+  info.addRow({ k: '题量', v: paper.question_count });
+  info.addRow({ k: '每题分值', v: paper.per_question_score });
+  info.addRow({ k: '总分', v: totalScore });
+  info.addRow({ k: '及格线', v: paper.pass_score });
+  info.addRow({ k: '应考人数', v: roster.length });
+  info.addRow({ k: '已交卷人数', v: finished });
+  info.addRow({ k: '缺考人数', v: roster.length - finished });
+  info.addRow({ k: '及格人数', v: passedCount });
+  info.addRow({
+    k: '及格率',
+    v: finished ? `${Math.round((passedCount / finished) * 1000) / 10}%` : '—',
+  });
+  info.addRow({ k: '说明', v: '每人取最近一次答卷；缺考显示「未参加」' });
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);

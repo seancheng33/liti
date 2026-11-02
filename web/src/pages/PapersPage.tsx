@@ -4,12 +4,13 @@ import {
   Button,
   Card,
   Divider,
+  Dropdown,
   Empty,
   Form,
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
+  type MenuProps,
   Radio,
   Select,
   Space,
@@ -29,6 +30,7 @@ import {
   ThunderboltOutlined,
   UnorderedListOutlined,
   DownloadOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
@@ -50,6 +52,20 @@ import {
 
 const STATUS_COLOR: Record<string, string> = { draft: 'default', published: 'green', archived: 'orange' };
 const STATUS_LABEL: Record<string, string> = { draft: '草稿', published: '已发布', archived: '已归档' };
+
+/** 毫秒时间戳 → "MM-DD HH:mm"，用服务端时区显示的同一套格式 */
+function fmtShort(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 本地时间字符串 → 时间戳；解析不了返回 NaN */
+function parseLocal(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : null;
+}
 
 export default function PapersPage() {
   const { user } = useAuth();
@@ -85,6 +101,12 @@ export default function PapersPage() {
   const isManager = user?.role === 'admin' || user?.role === 'teacher';
   const isStudent = user?.role === 'student';
   const mode = Form.useWatch('mode', form);
+  // 实时算总分：及格分是绝对分，不把总分摆在旁边，60 分到底合不合理根本看不出来
+  const perScore = Form.useWatch('perQuestionScore', form) ?? 1;
+  const passWatch = Form.useWatch('passScore', form);
+  const watchedRules = Form.useWatch('randomRules', form) as PaperRule[] | undefined;
+  const draftCount = mode === 'fixed' ? picked.length : (watchedRules ?? []).reduce((s, r) => s + (r?.count || 0), 0);
+  const draftTotal = draftCount * (perScore || 1);
   const [searchParams, setSearchParams] = useSearchParams();
   const autoStartedRef = useRef(false);
 
@@ -132,9 +154,14 @@ export default function PapersPage() {
     form.setFieldsValue({
       mode: 'random',
       durationMin: Math.round((settings?.defaultDurationSec ?? 3600) / 60),
+      // 默认 10 分/题：10 题正好 100 分，学校习惯的百分制；题量变了总分跟着变
+      perQuestionScore: 10,
       passScore: settings?.defaultPassScore ?? 60,
-      reviewMode: 'after_submit',
+      publication: 'after_submit',
       shuffleOptions: true,
+      allowStudentPause: true,
+      startAt: undefined,
+      endAt: undefined,
       randomRules: [{ categoryId: undefined, count: 10 }],
     });
     setOpen(true);
@@ -168,13 +195,31 @@ export default function PapersPage() {
       questionIds = picked.map((q) => q.id);
     }
 
+    // 四个选项落到两个字段上：review_mode 决定「什么时候给看」，analysis_published 决定「现在给不给」
+    const pub = values.publication ?? 'after_submit';
+    const reviewMode = pub === 'immediate' ? 'immediate' : pub === 'never' ? 'never' : 'after_submit';
+    const analysisPublished = pub === 'after_submit' || pub === 'immediate';
+    // 「考完统一公布」= 分数和解析都先压着，等老师在试卷列表点「公布」
+    const resultsPublished = pub !== 'manual';
+
+    if (values.passScore != null && draftTotal > 0 && values.passScore > draftTotal) {
+      message.warning(`及格分 ${values.passScore} 分超过了满分 ${draftTotal} 分，这样没人能及格`);
+      return null;
+    }
+
     return {
       title: values.title,
       mode: values.mode,
       durationSec: values.durationMin * 60,
+      perQuestionScore: values.perQuestionScore ?? 1,
       passScore: values.passScore,
-      reviewMode: values.reviewMode,
+      reviewMode,
+      analysisPublished,
+      resultsPublished,
       shuffleOptions: values.shuffleOptions,
+      startAt: parseLocal(values.startAt),
+      endAt: parseLocal(values.endAt),
+      allowStudentPause: values.allowStudentPause !== false,
       ...(randomRules ? { randomRules } : { questionIds }),
     };
   }
@@ -295,13 +340,101 @@ export default function PapersPage() {
     }
   }
 
+  /** 归档：卷子下线但成绩保留。有答卷的卷子不能删，只能走这里 */
+  async function archive(id: number) {
+    try {
+      await api.post(`/api/papers/${id}/archive`);
+      message.success('已归档：学生看不到这份卷子了，历史成绩保留');
+      load();
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
+
+  /** 放分 / 放解析：正式考试考完统一公布 */
+  async function publishResults(paper: Paper, opts: { results?: boolean; analysis?: boolean }, label: string) {
+    try {
+      await api.post(`/api/papers/${paper.id}/publish-results`, opts);
+      message.success(`${label}已公布，学生现在可以看了`);
+      load();
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
+
+  /** 强制收卷：这场考试立刻结束 */
+  async function closeExam(paper: Paper) {
+    try {
+      const r = await api.post<{ closed: number }>(`/api/papers/${paper.id}/close`);
+      message.success(`已收卷，${r.closed} 份进行中的答卷已判分`);
+      load();
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
+
+  /** 低频动作统一从「更多」下拉里点，避免一行挤八九个链接换行 */
+  function onMore(key: string, r: Paper) {
+    const confirm = (title: string, content: string, okText: string, onOk: () => Promise<void> | void, danger = false) =>
+      Modal.confirm({ title, content, okText, cancelText: '取消', okButtonProps: { danger }, onOk });
+    switch (key) {
+      case 'publish':
+      case 'audience':
+        openPublish(r);
+        break;
+      case 'close':
+        confirm('强制收卷？', '所有还在答题的考生会被立即判分结束，不可撤销', '收卷', () => closeExam(r));
+        break;
+      case 'results':
+        confirm(
+          '公布成绩？',
+          '公布后学生就能看到自己的分数（答案仍按解析设置决定是否可见）',
+          '公布',
+          () => publishResults(r, { results: true }, '成绩'),
+        );
+        break;
+      case 'analysis':
+        confirm(
+          '公布答案与解析？',
+          '公布后学生能看到正确答案和解析，请确认所有场次都已考完',
+          '公布',
+          () => publishResults(r, { analysis: true }, '解析'),
+        );
+        break;
+      case 'export':
+        window.location.href = `/api/attempts/export?paperId=${r.id}`;
+        break;
+      case 'archive':
+        confirm('归档这份试卷？', '学生看不到它了，历史答卷与成绩全部保留', '归档', () => archive(r.id));
+        break;
+      case 'delete':
+        confirm('确认删除该试卷？', '已有答卷的试卷不能删除，只能归档', '删除', () => remove(r.id), true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 这场考试的状态：未开始 / 进行中 / 已结束 / 不限时间 */
+  function windowState(p: Paper): 'none' | 'before' | 'open' | 'after' {
+    const now = Date.now();
+    if (p.start_at == null && p.end_at == null) return 'none';
+    if (p.start_at != null && now < p.start_at) return 'before';
+    if (p.end_at != null && now >= p.end_at) return 'after';
+    return 'open';
+  }
+
   const columns = [
     {
       title: '试卷',
       dataIndex: 'title',
+      width: 200,
       render: (title: string, r: Paper) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text strong>{title}</Typography.Text>
+        // 列一多标题会被挤成逐字竖排，必须自己限宽 + 省略号
+        <Space direction="vertical" size={0} style={{ maxWidth: 172 }}>
+          <Typography.Text strong ellipsis={{ tooltip: title }}>
+            {title}
+          </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             #{r.id}
           </Typography.Text>
@@ -309,17 +442,51 @@ export default function PapersPage() {
       ),
     },
     {
-      title: '组卷方式',
+      title: '组卷',
       dataIndex: 'mode',
-      width: 110,
-      render: (m: string) => <Tag color={m === 'random' ? 'purple' : 'blue'}>{m === 'random' ? '随机抽题' : '手选题目'}</Tag>,
+      width: 76,
+      render: (m: string) => <Tag color={m === 'random' ? 'purple' : 'blue'}>{m === 'random' ? '随机' : '手选'}</Tag>,
     },
-    { title: '题量', dataIndex: 'question_count', width: 80 },
-    { title: '时长', dataIndex: 'duration_sec', width: 90, render: (d: number) => `${Math.round(d / 60)} 分钟` },
     {
-      title: '可见范围',
+      // 题量和总分拆两列时表格会横向溢出，合起来反而一眼看清「几题几分」
+      title: '题量 · 总分',
+      key: 'scale',
+      width: 116,
+      render: (_: unknown, r: Paper) => {
+        const total = r.question_count * (r.per_question_score ?? 1);
+        return (
+          <Tooltip title={`每题 ${r.per_question_score ?? 1} 分 × ${r.question_count} 题`}>
+            <span>
+              {r.question_count} 题 · {total} 分
+            </span>
+          </Tooltip>
+        );
+      },
+    },
+    { title: '时长', dataIndex: 'duration_sec', width: 78, render: (d: number) => `${Math.round(d / 60)} 分钟` },
+    {
+      title: '考试时间',
+      key: 'window',
+      width: 172,
+      render: (_: unknown, r: Paper) => {
+        const st = windowState(r);
+        if (st === 'none') return <Typography.Text type="secondary">不限（随时可考）</Typography.Text>;
+        const color = st === 'before' ? 'default' : st === 'open' ? 'green' : 'orange';
+        const label = st === 'before' ? '未开始' : st === 'open' ? '进行中' : '已结束';
+        return (
+          <Space direction="vertical" size={0}>
+            <Tag color={color}>{label}</Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {r.start_at ? fmtShort(r.start_at) : '随时'} ~ {r.end_at ? fmtShort(r.end_at) : '不限'}
+            </Typography.Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '可见',
       dataIndex: 'audience_mode',
-      width: 130,
+      width: 96,
       render: (m: string, r: Paper) =>
         m === 'selected' ? (
           <Tooltip title="只对点名的学生 / 分组可见，其他人看不到这份卷子">
@@ -329,7 +496,7 @@ export default function PapersPage() {
             </Tag>
           </Tooltip>
         ) : (
-          <Tag>所有学生</Tag>
+          <Tag>全部</Tag>
         ),
     },
     ...(isStudent
@@ -354,38 +521,62 @@ export default function PapersPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 100,
+      width: 84,
       render: (s: string) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
     },
     {
       title: '操作',
       key: 'op',
-      width: 260,
+      width: 158,
+      fixed: 'right' as const,
       render: (_: unknown, r: Paper) => {
         const left = r.remaining_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+        const open = windowState(r) !== 'after';
+        // 只在管理员视角才需要那一堆低频动作
+        const more: MenuProps['items'] = isManager
+          ? [
+              { key: 'publish', label: r.status === 'published' ? '可见范围' : '发布' },
+              ...(r.status === 'published'
+                ? [
+                    { key: 'close', label: '强制收卷' },
+                    ...(r.results_published === 0 ? [{ key: 'results', label: '公布成绩' }] : []),
+                    ...(r.analysis_published === 0 && r.review_mode !== 'never'
+                      ? [{ key: 'analysis', label: '公布答案与解析' }]
+                      : []),
+                  ]
+                : []),
+              { type: 'divider' as const },
+              { key: 'export', label: '导出成绩（含缺考）' },
+              ...(r.status !== 'archived' ? [{ key: 'archive', label: '归档' }] : []),
+              { type: 'divider' as const },
+              { key: 'delete', label: '删除', danger: true },
+            ]
+          : [];
         return (
-          <Space size={12} wrap>
+          <Space size={10}>
             <Tooltip title="考生视角看一遍卷面，不含答案">
               <a onClick={() => openPreview(r.id)}>预览</a>
             </Tooltip>
-            {isManager && r.status !== 'published' && <a onClick={() => openPublish(r)}>发布</a>}
-            {isManager && r.status === 'published' && (
-              <Tooltip title="指定哪些学生能看到这份卷子">
-                <a onClick={() => openPublish(r)}>可见范围</a>
-              </Tooltip>
-            )}
             {r.status === 'published' &&
-              (left > 0 ? (
+              (left > 0 && open ? (
                 <a onClick={() => startExam(r)}>开始答题</a>
               ) : (
-                <Tooltip title={`最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已经用完了`}>
-                  <span style={{ color: '#bbb', cursor: 'not-allowed' }}>次数已用完</span>
+                <Tooltip title={open ? `最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已经用完了` : '考试已经结束'}>
+                  <span style={{ color: '#bbb', cursor: 'not-allowed' }}>{open ? '次数已用完' : '已结束'}</span>
                 </Tooltip>
               ))}
             {isManager && (
-              <Popconfirm title="确认删除该试卷？" okText="删除" cancelText="取消" onConfirm={() => remove(r.id)}>
-                <a style={{ color: '#e5484d' }}>删除</a>
-              </Popconfirm>
+              <Dropdown
+                menu={{ items: more, onClick: ({ key }) => onMore(key, r) }}
+                trigger={['click']}
+                placement="bottomRight"
+              >
+                <Tooltip title="更多操作（收卷 / 公布 / 导出 / 归档）">
+                  <a style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                    <MoreOutlined /> 更多
+                  </a>
+                </Tooltip>
+              </Dropdown>
             )}
           </Space>
         );
@@ -399,7 +590,7 @@ export default function PapersPage() {
     <div className="liti-page">
       <PageHeader
         title="试卷"
-        description={`随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建好后点「发布」，发布时可以选让所有学生看到还是只给指定学生看。每份试卷最多作答 ${MAX_ATTEMPTS_PER_PAPER} 次，练习卷不受限。`}
+        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建卷时可以设开考与结束时间（到点自动收卷）、每题分值、学生能不能自己暂停。发布时可选让所有学生看到还是只给指定学生看。每份试卷最多作答 3 次，练习卷不受限。"
         extra={
           <>
             {showPractice && (
@@ -408,9 +599,11 @@ export default function PapersPage() {
               </Button>
             )}
             {isManager && (
-              <Button icon={<DownloadOutlined />} href="/api/attempts/export">
-                导出成绩
-              </Button>
+              <Tooltip title="全站答卷流水；单场成绩册请用每行的「导出成绩」">
+                <Button icon={<DownloadOutlined />} href="/api/attempts/export">
+                  导出全部成绩
+                </Button>
+              </Tooltip>
             )}
             {isManager && (
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
@@ -427,7 +620,7 @@ export default function PapersPage() {
           columns={columns}
           dataSource={data}
           loading={loading}
-          scroll={{ x: 980 }}
+          scroll={{ x: 1100 }}
           pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
         />
       </Card>
@@ -467,21 +660,55 @@ export default function PapersPage() {
 
           <Space size={16} wrap>
             <Form.Item name="durationMin" label="考试时长（分钟）" rules={[{ required: true }]} tooltip="整卷倒计时，到点自动交卷">
-              <InputNumber min={1} max={1440} style={{ width: 140 }} />
+              <InputNumber min={1} max={1440} style={{ width: 130 }} />
             </Form.Item>
-            <Form.Item name="passScore" label="及格分" tooltip="只影响成绩页的及格判定，不影响得分">
-              <InputNumber min={0} max={100} style={{ width: 120 }} />
+            <Form.Item name="perQuestionScore" label="每题分值" tooltip="总分 = 题量 × 每题分值，直接影响及格线怎么算">
+              <InputNumber min={1} max={100} style={{ width: 110 }} addonAfter="分" />
             </Form.Item>
-            <Form.Item name="reviewMode" label="解析时机" tooltip="交卷后：整卷交完统一看解析；即时：每题答完就能看">
-              <Radio.Group optionType="button" buttonStyle="solid">
-                <Radio.Button value="after_submit">交卷后</Radio.Button>
-                <Radio.Button value="immediate">即时</Radio.Button>
-              </Radio.Group>
+            <Form.Item name="passScore" label="及格分" tooltip="按总分算的绝对分：得满这个分才算及格">
+              <InputNumber min={0} max={10000} style={{ width: 120 }} addonAfter="分" />
             </Form.Item>
             <Form.Item name="shuffleOptions" label="选项乱序" valuePropName="checked" tooltip="每个学生拿到的选项顺序不同，防抄袭">
               <Switch />
             </Form.Item>
           </Space>
+
+          <Form.Item name="publication" label="成绩与解析" tooltip="决定学生什么时候能看到分数、什么时候能看到正确答案">
+            <Radio.Group optionType="button" buttonStyle="solid">
+              <Radio.Button value="after_submit">交卷后公布</Radio.Button>
+              <Radio.Button value="manual">考完统一公布</Radio.Button>
+              <Radio.Button value="immediate">答题中即时反馈</Radio.Button>
+              <Radio.Button value="never">永不公布</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+
+          <div style={{ marginTop: -12, marginBottom: 16 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              当前：{draftCount} 题 × {perScore || 1} 分 = 满分 {draftTotal} 分
+              {draftTotal > 0 && passWatch != null
+                ? `，及格线 ${passWatch} 分（${Math.round((Number(passWatch) / draftTotal) * 100)}%）`
+                : ''}
+            </Typography.Text>
+          </div>
+
+          <Card size="small" title="考试组织（正式考试建议填）" style={{ marginBottom: 16 }}>
+            <Space size={16} wrap>
+              <Form.Item name="startAt" label="开考时间" tooltip="不填 = 随时可考；填了以后学生提前点也进不去">
+                <Input type="datetime-local" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item name="endAt" label="结束时间" tooltip="统一收卷：到点后所有答卷自动判分，谁的剩余时间都不会超过这个点">
+                <Input type="datetime-local" style={{ width: 200 }} />
+              </Form.Item>
+              <Form.Item
+                name="allowStudentPause"
+                label="学生可自行暂停"
+                valuePropName="checked"
+                tooltip="正式考试请关闭：能随时停表，就等于能随时出去查资料"
+              >
+                <Switch checkedChildren="允许" unCheckedChildren="禁止" />
+              </Form.Item>
+            </Space>
+          </Card>
 
           <Form.Item name="mode" label="组卷方式" tooltip="随机抽题每次抽到的题不固定；手选可以精确控制题目">
             <Radio.Group optionType="button" buttonStyle="solid">

@@ -9,6 +9,13 @@ import { recordCorrect, recordWrong, sampleWrongQuestionIds } from '../wrong/ser
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
+/** 只给报错文案用，不依赖 ICU：按服务端本地时区（容器里设了 TZ）格式化 */
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function setsEqual(a: Set<number>, b: Set<number>): boolean {
   if (a.size !== b.size) return false;
   for (const x of a) if (!b.has(x)) return false;
@@ -41,6 +48,18 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
     throw new HttpError(404, '试卷不存在');
   }
 
+  // 考试时间窗口：没到点不能进，过点了不能进。
+  // 提前点「开始答题」也不给开，否则先到的人等于多考了几十分钟。
+  const nowMs = Date.now();
+  if (paper.practice !== 1) {
+    if (paper.start_at != null && nowMs < paper.start_at) {
+      throw new HttpError(400, `考试还没开始（${fmtTime(paper.start_at)} 开考）`);
+    }
+    if (paper.end_at != null && nowMs >= paper.end_at) {
+      throw new HttpError(400, '考试已经结束');
+    }
+  }
+
   const items = await db.selectFrom('paper_item').selectAll().where('paper_id', '=', paperId).orderBy('order_no', 'asc').execute();
   if (!items.length) throw new HttpError(400, '试卷没有题目');
 
@@ -69,8 +88,11 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
   }
 
   const totalScore = items.reduce((s, i) => s + i.score, 0);
-  const now = Date.now();
-  const deadlineAt = now + paper.duration_sec * 1000;
+  const now = nowMs;
+  // 统一收卷：不管学生什么时候进来，deadline 都不能超过卷子的 end_at
+  let deadlineAt = now + paper.duration_sec * 1000;
+  if (paper.practice !== 1 && paper.end_at != null) deadlineAt = Math.min(deadlineAt, paper.end_at);
+  if (deadlineAt <= now) throw new HttpError(400, '考试已经结束');
 
   return db.transaction().execute(async (trx) => {
     const res = await trx
@@ -235,7 +257,12 @@ export async function startPractice(db: Db, userId: number, opts: PracticeOption
   });
 }
 
-async function gradeAttempt(db: Db, attemptId: number, reason: 'manual' | 'violation' | 'timeout', status: 'submitted' | 'expired'): Promise<void> {
+async function gradeAttempt(
+  db: Db,
+  attemptId: number,
+  reason: 'manual' | 'violation' | 'timeout' | 'forced',
+  status: 'submitted' | 'expired',
+): Promise<void> {
   await db.transaction().execute(async (trx) => {
     const attempt = await trx.selectFrom('attempt').selectAll().where('id', '=', attemptId).executeTakeFirst();
     if (!attempt || attempt.status !== 'in_progress') return;
@@ -331,6 +358,17 @@ export async function pauseAttempt(db: Db, attemptId: number, userId: number): P
   if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
   if (attempt.status !== 'in_progress') throw new HttpError(400, '答卷已结束');
   if (attempt.paused_at != null) return pauseStateOf(attempt);
+
+  // 考试卷关掉「学生自暂停」：能随时停表就等于能随时出去查资料。
+  // 练习卷不受这个开关约束。
+  const paper = await db
+    .selectFrom('paper')
+    .select(['practice', 'allow_student_pause'])
+    .where('id', '=', attempt.paper_id)
+    .executeTakeFirst();
+  if (paper && paper.practice !== 1 && paper.allow_student_pause === 0) {
+    throw new HttpError(400, '本场考试不允许自行暂停，如有特殊情况请联系监考老师');
+  }
 
   if (Date.now() > attempt.deadline_at) {
     await gradeAttempt(db, attemptId, 'timeout', 'expired');
@@ -523,7 +561,12 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
     optMap.get(o.question_id)!.push(o);
   }
 
-  const reveal = !masked && (refreshed.status !== 'in_progress' || paper?.review_mode === 'immediate');
+  // 成绩与解析的公布是两件事：先放分、后放答案（或者只放分不放答案）。
+  // review_mode='never' 的卷子，答案与解析永远不下发 —— 多场次考试全靠这个。
+  const finished = refreshed.status !== 'in_progress';
+  const resultsVisible = finished && paper?.results_published !== 0;
+  const analysisVisible = finished && paper?.review_mode !== 'never' && paper?.analysis_published !== 0;
+  const reveal = !masked && (analysisVisible || (!finished && paper?.review_mode === 'immediate'));
 
   return {
     id: refreshed.id,
@@ -533,9 +576,15 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
     startedAt: refreshed.started_at,
     deadlineAt: refreshed.deadline_at,
     submittedAt: refreshed.submitted_at,
-    score: refreshed.score,
-    totalScore: refreshed.total_score,
-    correctCount: refreshed.correct_count,
+    // 没公布成绩时连分数都不给：先交卷的人把分报出去，一样影响后面的场次
+    score: resultsVisible ? refreshed.score : null,
+    totalScore: resultsVisible ? refreshed.total_score : null,
+    correctCount: resultsVisible ? refreshed.correct_count : null,
+    passScore: paper?.pass_score ?? 60,
+    resultsPublished: resultsVisible,
+    analysisPublished: analysisVisible,
+    /** 本场能不能自己点暂停（考试卷通常是 false） */
+    allowPause: paper ? paper.practice === 1 || paper.allow_student_pause !== 0 : true,
     submitReason: refreshed.submit_reason,
     reviewMode: paper?.review_mode,
     paused,
@@ -567,8 +616,9 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
             })),
         selectedOptionIds: selected,
         flagged: item.flagged === 1,
-        isCorrect: refreshed.status !== 'in_progress' ? item.is_correct === 1 : null,
-        score: refreshed.status !== 'in_progress' ? item.score : null,
+        // 对错与得分同样属于「答案」，没公布解析时一律不给
+        isCorrect: finished && analysisVisible ? item.is_correct === 1 : null,
+        score: finished && analysisVisible ? item.score : null,
       };
     }),
   };
@@ -596,11 +646,55 @@ export async function listMyAttempts(db: Db, userId: number, page = 1, pageSize 
       'attempt.submit_reason',
       'paper.title as paper_title',
       'paper.question_count',
+      'paper.results_published as results_published',
     ])
     .where('attempt.user_id', '=', userId)
     .orderBy('attempt.id', 'desc')
     .limit(ps)
     .offset((p - 1) * ps)
     .execute();
-  return { total, items };
+  // 「我的答卷」列表同样要守发布规则：老师还没放分，这里也不能报分
+  return {
+    total,
+    items: items.map((r) => {
+      const published = r.results_published !== 0 || r.status === 'in_progress';
+      return {
+        ...r,
+        score: published ? r.score : null,
+        correct_count: published ? r.correct_count : null,
+      };
+    }),
+  };
+}
+
+/**
+ * 后台扫描：把「已经到点但没交」的答卷判掉。
+ *
+ * 以前只有访问时才惰性判分 —— 学生关了浏览器不回来，答卷就永远停在 in_progress，
+ * 成绩册里既不算交卷也不算缺考。统一收卷（paper.end_at）也依赖这个扫描。
+ * 暂停中的不碰：暂停时 deadline 定格，不能当成超时。
+ */
+export async function closeExpiredAttempts(db: Db, limit = 200): Promise<number> {
+  const rows = await db
+    .selectFrom('attempt')
+    .select('id')
+    .where('status', '=', 'in_progress')
+    .where('deadline_at', '<=', Date.now())
+    .where('paused_at', 'is', null)
+    .limit(limit)
+    .execute();
+  for (const r of rows) await gradeAttempt(db, r.id, 'timeout', 'expired');
+  return rows.length;
+}
+
+/** 教师强制收卷：这份卷子上所有还在进行中的答卷立刻判分结束 */
+export async function closePaperAttempts(db: Db, paperId: number): Promise<number> {
+  const rows = await db
+    .selectFrom('attempt')
+    .select('id')
+    .where('paper_id', '=', paperId)
+    .where('status', '=', 'in_progress')
+    .execute();
+  for (const r of rows) await gradeAttempt(db, r.id, 'forced', 'submitted');
+  return rows.length;
 }

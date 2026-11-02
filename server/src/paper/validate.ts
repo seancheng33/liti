@@ -18,9 +18,24 @@ export interface PaperInput {
   audienceMode?: AudienceMode;
   audienceUserIds?: number[];
   audienceGroupIds?: number[];
+  /** 允许开考的时间（毫秒时间戳），不传 = 随时可考 */
+  startAt?: number | null;
+  /** 统一收卷时间，不传 = 按各自时长 */
+  endAt?: number | null;
+  /** 每题分值（1–100），默认 1；总分 = 题数 × 该值 */
+  perQuestionScore?: number;
+  /** 是否允许学生自行暂停，默认允许；正式考试应传 false */
+  allowStudentPause?: boolean;
+  /** 交卷后是否立即公布分数，默认公布；正式考试应传 false，由老师统一放分 */
+  resultsPublished?: boolean;
+  /** 是否公布答案与解析，默认公布 */
+  analysisPublished?: boolean;
 }
 
 export const MAX_PAPER_QUESTIONS = 100;
+/** 单题分值上限与总分上限（100 题 × 100 分 = 10000） */
+export const MAX_PER_QUESTION_SCORE = 100;
+export const MAX_TOTAL_SCORE = MAX_PAPER_QUESTIONS * MAX_PER_QUESTION_SCORE;
 
 export function validatePaperInput(input: PaperInput): string[] {
   const errors: string[] = [];
@@ -28,19 +43,43 @@ export function validatePaperInput(input: PaperInput): string[] {
   if (input.mode !== 'random' && input.mode !== 'fixed') errors.push('组卷方式无效');
   if (!input.durationSec || input.durationSec < 1) errors.push('考试时长必须大于 0 秒');
 
+  if (input.perQuestionScore != null) {
+    if (!Number.isInteger(input.perQuestionScore) || input.perQuestionScore < 1 || input.perQuestionScore > MAX_PER_QUESTION_SCORE) {
+      errors.push(`每题分值须为 1–${MAX_PER_QUESTION_SCORE} 的整数`);
+    }
+  }
+
+  // 时间窗口：必须 start < end，且结束时间不能是过去
+  const { startAt, endAt } = input;
+  if (startAt != null && (!Number.isFinite(startAt) || startAt <= 0)) errors.push('开考时间无效');
+  if (endAt != null && (!Number.isFinite(endAt) || endAt <= 0)) errors.push('结束时间无效');
+  if (startAt != null && endAt != null && startAt >= endAt) errors.push('开考时间必须早于结束时间');
+  if (endAt != null && endAt <= Date.now()) errors.push('结束时间已经过去了，请重新选择');
+
+  // 题量与及格线：题量决定总分，及格分不能超过总分 —— 否则「永远不及格」这种配置会被悄悄存进去
+  let count = 0;
   if (input.mode === 'random') {
     const rules = input.randomRules ?? [];
-    const total = rules.reduce((s, r) => s + (r.count || 0), 0);
-    if (total < 1 || total > MAX_PAPER_QUESTIONS) {
+    count = rules.reduce((s, r) => s + (r.count || 0), 0);
+    if (count < 1 || count > MAX_PAPER_QUESTIONS) {
       errors.push(`题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
     }
     for (const r of rules) {
       if (!r.count || r.count < 1) errors.push('每个抽题规则的数量必须大于 0');
     }
   } else {
-    const ids = input.questionIds ?? [];
-    if (ids.length < 1 || ids.length > MAX_PAPER_QUESTIONS) {
+    count = (input.questionIds ?? []).length;
+    if (count < 1 || count > MAX_PAPER_QUESTIONS) {
       errors.push(`题量须在 1–${MAX_PAPER_QUESTIONS} 之间`);
+    }
+  }
+
+  if (count > 0) {
+    const totalScore = count * (input.perQuestionScore ?? 1);
+    // 只在「显式设置了分值体系」时硬校验：老调用方（不传 perQuestionScore）沿用 1 分/题的历史口径，
+    // 那时及格分本来就是个展示值，直接拒绝会把历史流程全打断。
+    if (input.perQuestionScore != null && input.passScore != null && input.passScore > totalScore) {
+      errors.push(`及格分（${input.passScore}）不能超过试卷总分（${totalScore}）`);
     }
   }
 
