@@ -332,3 +332,88 @@ export const PRACTICE_SOURCE_LABEL: Record<string, string> = {
   random: '随机练习',
   wrong: '错题练习',
 };
+
+/* ---------- 逐题分析（v0.9） ---------- */
+
+export type QuestionVerdict = 'normal' | 'too-hard' | 'too-easy' | 'low-discrimination' | 'check-answer';
+
+export interface AnalysisOption {
+  id: number;
+  /** 原始顺序的字母（A/B/C/D） */
+  label: string;
+  content: string;
+  isCorrect: boolean;
+  count: number;
+  rate: number;
+}
+
+export interface AnalysisQuestion {
+  orderNo: number;
+  questionId: number;
+  type: 'single' | 'multiple';
+  stem: string;
+  hasImage: boolean;
+  categoryName: string | null;
+  score: number;
+  answeredCount: number;
+  blankCount: number;
+  correctCount: number;
+  /** P 值：答对人数 / 实考人数（未作答按答错计） */
+  pValue: number;
+  highRate: number | null;
+  lowRate: number | null;
+  /** D 值：高分组正确率 − 低分组正确率；样本不足为 null */
+  discrimination: number | null;
+  options: AnalysisOption[];
+  flags: string[];
+  verdict: QuestionVerdict;
+}
+
+export interface AnalysisSummary {
+  rosterCount: number;
+  rosterTotalCount: number;
+  participantCount: number;
+  absentCount: number;
+  participationRate: number;
+  avgScore: number;
+  maxScore: number;
+  minScore: number;
+  medianScore: number;
+  stdDev: number;
+  avgScorePercent: number;
+  passCount: number;
+  passRate: number;
+  avgDurationSec: number;
+  reasonCounts: Record<string, number>;
+  violationTotal: number;
+  violationStudents: number;
+}
+
+export interface PaperAnalysis {
+  paper: {
+    id: number;
+    title: string;
+    questionCount: number;
+    totalScore: number;
+    passScore: number;
+    perQuestionScore: number;
+    startAt: number | null;
+    endAt: number | null;
+    status: string;
+    audienceMode: string;
+  };
+  className: string | null;
+  summary: AnalysisSummary;
+  split: { highCount: number; lowCount: number; ratio: number; reliable: boolean };
+  scoreBuckets: { label: string; from: number; to: number; count: number }[];
+  questions: AnalysisQuestion[];
+  warnings: string[];
+}
+
+export const VERDICT_LABEL: Record<QuestionVerdict, string> = {
+  normal: '正常',
+  'too-hard': '偏难',
+  'too-easy': '偏易',
+  'low-discrimination': '区分度低',
+  'check-answer': '疑答案有误',
+};

@@ -3,6 +3,7 @@ import type { Selectable } from 'kysely';
 import type { Db } from '../db/index.js';
 import type { AttemptRow } from '../db/types.js';
 import { HttpError } from '../http-error.js';
+import { loadPaperRoster, sortRoster } from '../paper/roster.js';
 import { TEMPLATE_HEADERS } from './template.js';
 
 const STATUS_LABEL: Record<string, string> = { in_progress: '进行中', submitted: '已交卷', expired: '已超时' };
@@ -105,60 +106,14 @@ async function exportPaperScores(db: Db, paperId: number, className?: string): P
   if (!paper) throw new HttpError(404, '试卷不存在');
 
   // 应考名单：全体学生，或「点名 ∪ 分组」的并集
-  type RosterUser = { id: number; username: string; display_name: string; student_no: string | null; class_name: string | null };
-  let roster: RosterUser[];
-  if (paper.audience_mode === 'all') {
-    roster = await db
-      .selectFrom('user')
-      .select(['id', 'username', 'display_name', 'student_no', 'class_name'])
-      .where('role', '=', 'student')
-      .execute();
-  } else {
-    const direct = await db
-      .selectFrom('paper_audience as pa')
-      .innerJoin('user as u', 'u.id', 'pa.user_id')
-      .select([
-        'u.id as id',
-        'u.username as username',
-        'u.display_name as display_name',
-        'u.student_no as student_no',
-        'u.class_name as class_name',
-      ])
-      .where('pa.paper_id', '=', paperId)
-      .execute();
-    const viaGroup = await db
-      .selectFrom('paper_audience_group as pag')
-      .innerJoin('student_group_member as m', 'm.group_id', 'pag.group_id')
-      .innerJoin('user as u', 'u.id', 'm.user_id')
-      .select([
-        'u.id as id',
-        'u.username as username',
-        'u.display_name as display_name',
-        'u.student_no as student_no',
-        'u.class_name as class_name',
-      ])
-      .where('pag.paper_id', '=', paperId)
-      .execute();
-    const merged = new Map<number, RosterUser>();
-    for (const u of [...direct, ...viaGroup]) merged.set(u.id, u);
-    roster = [...merged.values()];
-  }
+  let roster = await loadPaperRoster(db, paperId, paper.audience_mode);
 
   // 按班筛选（教务按班发成绩单）；不传班级就导全部应考的人
   const classLabel = className?.trim() || '';
   const rosterAll = roster;
   if (classLabel) roster = roster.filter((u) => (u.class_name ?? '') === classLabel);
 
-  // 排序跟着教务的习惯走：先班级，再学号，没学号的按用户名垫底
-  roster.sort((a, b) => {
-    const ca = a.class_name ?? '\uffff';
-    const cb = b.class_name ?? '\uffff';
-    if (ca !== cb) return ca.localeCompare(cb, 'zh-CN');
-    const na = a.student_no ?? '\uffff';
-    const nb = b.student_no ?? '\uffff';
-    if (na !== nb) return na.localeCompare(nb, 'zh-CN');
-    return a.username.localeCompare(b.username);
-  });
+  sortRoster(roster);
 
   // 每人取最近一次答卷（补考/重考以最后一次为准）
   const attempts = await db

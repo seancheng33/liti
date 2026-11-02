@@ -1,6 +1,7 @@
 import { Alert, Anchor, Card, Col, Collapse, Divider, Row, Space, Spin, Steps, Table, Tag, Typography } from 'antd';
 import {
   ApartmentOutlined,
+  BarChartOutlined,
   BookOutlined,
   FileTextOutlined,
   FormOutlined,
@@ -222,6 +223,7 @@ function HelpBody() {
                 { key: 'exam', href: '#exam', title: '答题与防作弊' },
                 { key: 'review', href: '#review', title: '交卷与解析' },
                 { key: 'stats', href: '#stats', title: '成绩与统计' },
+                { key: 'analysis', href: '#analysis', title: '逐题分析' },
                 { key: 'faq', href: '#faq', title: '常见问题' },
               ]}
             />
@@ -527,7 +529,7 @@ function HelpBody() {
             <Paragraph>
               学生在「我的答卷」里能看到每次作答的得分、交卷原因，点进去还有逐题解析。
               教师和管理员在「统计」里能看到题目规模、答卷量、平均得分率，以及按分类的正确率；
-              题库页右上角可以「导出成绩」，导出的 Excel 里交卷原因也是中文。
+              试卷页的「更多」里可以「导出成绩」，导出的 Excel 里交卷原因也是中文。
             </Paragraph>
             <Paragraph style={{ marginBottom: 0 }}>
               管理员还能在「网站管理」改站点名称、登录页公告、新建试卷的默认时长和及格分，以及是否允许学生自助练习。
@@ -543,6 +545,45 @@ function HelpBody() {
               />
             )}
           </Card>
+
+          {isManager && (
+            <Card id="analysis" style={{ marginBottom: 16 }}>
+              <Title level={4} style={{ marginTop: 0 }}>
+                <BarChartOutlined /> 逐题分析
+              </Title>
+              <Paragraph>
+                考完之后想知道「哪道题出坏了」，用试卷页「更多」里的<Text strong>逐题分析</Text>。
+                它给出的不是分数榜，是每一道题的表现：
+              </Paragraph>
+              <Space direction="vertical" size={6} style={{ marginBottom: 12 }}>
+                <Text>
+                  · <Text strong>正确率 P</Text>：答对人数 ÷ 实考人数。0.3–0.85 算合适，太低偏难、太高偏易。
+                </Text>
+                <Text>
+                  · <Text strong>区分度 D</Text>：总分高的那批人和总分低的那批人，在这道题上差多少。
+                  0.3 以上是好题，0.2 以下说明好差学生答得差不多。D 为负要特别当心——多半是答案标反了。
+                </Text>
+                <Text>
+                  · <Text strong>选项分布</Text>：每个选项有多少人选。某个干扰项几乎没人选，说明它是废选项；
+                  某个干扰项比正确答案还热门，多半是陷阱题或答案有问题。
+                </Text>
+                <Text>
+                  · <Text strong>分数段分布</Text>：一眼看出这次是「大部分人都会」还是「两极分化」。
+                </Text>
+              </Space>
+              <Paragraph>
+                表格默认列全部题，切到<Text strong>「只看需关注」</Text>就只剩判为偏难、偏易、区分度低或疑似答案有误的那几道；
+                点每行左边的加号能展开看选项分布。顶部可以按班级单独分析，右上角「导出分析」出 Excel
+                （逐题、分数分布、考试信息三张表），直接发给教研或年级组长。
+              </Paragraph>
+              <Alert
+                type="info"
+                showIcon
+                message="统计口径"
+                description="只统计已交卷（含超时、违规、强制收卷）的答卷，每人取最近一次；进行中的答卷不算。实考人数不足 8 人时不给 D 值——样本太少算出来的数字只会误导人。练习卷每人题目不同，不做逐题分析。"
+              />
+            </Card>
+          )}
 
           <Card id="faq">
             <Title level={4} style={{ marginTop: 0 }}>

@@ -5,6 +5,8 @@ import { HttpError } from '../http-error.js';
 import { authenticate } from '../plugins/auth.js';
 import { requireRole } from '../rbac.js';
 import { exportAttemptsXlsx } from '../excel/export.js';
+import { exportAnalysisXlsx } from '../excel/analysis.js';
+import { analyzePaper } from './analysis.js';
 import * as service from './service.js';
 
 export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -55,6 +57,31 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
       'Content-Disposition',
       `attachment; filename="${paperId != null ? `liti-scores-paper${paperId}` : 'liti-scores'}.xlsx"`,
     );
+    return reply.send(buf);
+  });
+
+  // 逐题分析（P 值 / D 值 / 选项分布 / 分数段）。练习卷不适用，会返回 400
+  app.get('/analysis', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const q = request.query as Record<string, unknown>;
+    const paperId = Number(q.paperId);
+    if (!Number.isInteger(paperId) || paperId <= 0) throw new HttpError(400, '请指定要分析的试卷');
+    const className = typeof q.className === 'string' && q.className.trim() ? q.className.trim() : undefined;
+    return analyzePaper(db, paperId, { className });
+  });
+
+  // 分析结果导出 xlsx（教研 / 年级组长要的是文件，不是网页）
+  app.get('/analysis/export', async (request, reply) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const q = request.query as Record<string, unknown>;
+    const paperId = Number(q.paperId);
+    if (!Number.isInteger(paperId) || paperId <= 0) throw new HttpError(400, '请指定要分析的试卷');
+    const className = typeof q.className === 'string' && q.className.trim() ? q.className.trim() : undefined;
+    const buf = await exportAnalysisXlsx(db, paperId, className);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('Content-Disposition', `attachment; filename="liti-analysis-paper${paperId}.xlsx"`);
     return reply.send(buf);
   });
 

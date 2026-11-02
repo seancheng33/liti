@@ -13,6 +13,7 @@ import GroupsPage from './pages/GroupsPage';
 import ExamPage from './pages/ExamPage';
 import ReviewPage from './pages/ReviewPage';
 import MyAttemptsPage from './pages/MyAttemptsPage';
+import AnalysisPage from './pages/AnalysisPage';
 import StatsPage from './pages/StatsPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
@@ -51,6 +52,7 @@ export default function App() {
             }
           >
             <Route path="/papers" element={<PapersPage />} />
+            <Route path="/analysis/:paperId" element={<AnalysisPage />} />
             <Route path="/practice" element={<PracticePage />} />
             <Route path="/wrong" element={<WrongQuestionsPage />} />
             <Route path="/groups" element={<GroupsPage />} />

@@ -409,6 +409,9 @@ export default function PapersPage() {
       case 'export':
         window.location.href = `/api/attempts/export?paperId=${r.id}`;
         break;
+      case 'examAnalysis':
+        navigate(`/analysis/${r.id}`);
+        break;
       case 'exportClass':
         setExportClass('');
         setExportTarget(r);
@@ -570,6 +573,7 @@ export default function PapersPage() {
                   ]
                 : []),
               { type: 'divider' as const },
+              { key: 'examAnalysis', label: '逐题分析' },
               { key: 'export', label: '导出成绩（含缺考）' },
               { key: 'exportClass', label: '按班级导出成绩' },
               ...(r.status !== 'archived' ? [{ key: 'archive', label: '归档' }] : []),
