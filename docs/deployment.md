@@ -246,5 +246,82 @@ curl 127.0.0.1:8080/api/health               # 健康检查
 
 - **其它设备访问不了**：检查防火墙放行 8080；确认 `HOST=0.0.0.0`。
 - **改了代码不生效**：重新执行 `pnpm build` 并重启 `pnpm start`。
-- **数据库文件在哪**：`data/app.db`（可用 `SQLITE_PATH` 修改）。备份 = 停服后拷贝该文件。
-- **忘记密码**：删除 `data/app.db` 后重新执行 `pnpm seed`（会清空所有数据，慎用）。
+- **数据库文件在哪**：`data/app.db`（可用 `SQLITE_PATH` 修改）。**备份别直接拷文件** —— SQLite 开着 WAL 模式，运行中拷 `app.db` 会漏掉 `-wal` 里的最新写入，用 13 节的热备命令。
+- **忘记密码**：管理员可在用户管理页给学生签发重置码（v0.14）；管理员自己的密码丢了才用「删库重 seed」这条下下策（会清空所有数据，先备份）。
+
+## 13. 备份与恢复（已在测试机演练过，2026-11-02）
+
+### 13.1 SQLite（默认）
+
+**热备**（不停服，`.backup()` API 在线拷贝，自动合并 WAL）——容器部署时在容器内执行：
+
+```bash
+# 容器内：生成备份（liti 镜像自带 better-sqlite3）
+docker exec liti node -e "
+const D=require('/app/server/node_modules/better-sqlite3');
+const db=new D('/app/data/app.db');
+db.backup('/app/data/backup.db').then(()=>{console.log('done');db.close()});"
+# 拷出到宿主机
+docker cp liti:/app/data/backup.db /root/backups/liti-sqlite-$(date +%Y%m%d).db
+docker exec liti rm -f /app/data/backup.db
+```
+
+**校验**（备份完必须做）：
+
+```bash
+docker cp /root/backups/liti-sqlite-*.db liti:/app/data/_v.db
+docker exec liti node -e "
+const D=require('/app/server/node_modules/better-sqlite3');
+const db=new D('/app/data/_v.db',{readonly:true});
+console.log(db.pragma('integrity_check',{simple:true}));
+for (const t of ['user','question','paper','attempt']) console.log(t, db.prepare('select count(*) n from '+t).get().n);
+db.close();"
+docker exec liti rm -f /app/data/_v.db
+```
+
+**恢复**（真停机换文件）：
+
+```bash
+docker stop liti
+cd /var/lib/docker/volumes/liti-data/_data   # docker volume inspect liti-data 可查实际路径
+mv app.db app.db.broken && rm -f app.db-shm app.db-wal   # 旧 WAL/SHM 必须一起清掉，否则新库会跟旧 WAL 撞车
+cp /root/backups/liti-sqlite-XXXX.db app.db
+docker start liti && curl -s http://127.0.0.1:8080/api/health
+```
+
+### 13.2 MySQL
+
+**备份**（`--single-transaction` 对 InnoDB 一致性快照，不停服）：
+
+```bash
+docker exec liti-mysql mysqldump -uroot -p密码 --single-transaction --triggers --routines \
+  --databases liti > /root/backups/liti-mysql-$(date +%Y%m%d).sql
+```
+
+**恢复**（导入回 `liti` 库；导入前先确认 dump 完整——文件尾应有 `Dump completed`）：
+
+```bash
+docker exec -i liti-mysql sh -c 'mysql -uroot -p密码' < /root/backups/liti-mysql-XXXX.sql
+```
+
+dump 里带 `CREATE DATABASE liti` / `USE liti`，所以**不用先建库**；要导进别的库名，把这两行里的 `liti` 改掉再导。恢复后 `CHECK TABLE` 抽查关键表。
+
+### 13.3 演练记录（2026-11-02，测试机 192.168.1.61）
+
+- SQLite：热备 → `integrity_check: ok` → 停容器换文件 → 启动后 health 200、admin 登录 200、六表行数与备份时完全一致。
+- MySQL：dump 547KB → 导入临时库 `liti_restore` → user/question/attempt/password_reset 四表行数与源库逐一相等 → `CHECK TABLE` OK → 清理临时库。
+
+## 14. 性能基线（2026-11-02，测试机 2 核 / 2GB，并发 8）
+
+用 `liti-bench.mjs`（纯 Node HTTP，LITI_BASE 指向目标实例）压了六个场景，两库各一轮，错误率 0（MySQL exam-flow 仅 1 次瞬时失败）：
+
+| 场景 | SQLite rps | p95 | MySQL rps | p95 | 说明 |
+|---|---|---|---|---|---|
+| login（正确密码） | 11.9 | 713ms | 11.2 | 824ms | **argon2 故意慢**，登录就该是这个量级 |
+| 试卷列表（学生） | 324 | 35ms | 308 | 35ms | |
+| 公开统计（未登录） | 185 | 52ms | 185 | 50ms | |
+| 题库列表（教师） | 113 | 41ms | 120 | 40ms | |
+| 答题自动保存 | 977 | 10ms | 551 | 19ms | MySQL 写盘慢一倍，符合预期 |
+| 完整考试流（开考→3 存→交卷） | 43.4 流/s | 142ms | 23.1 流/s | 239ms | 整流时延 |
+
+**读数结论**：2 核小机器上，整场考试的瓶颈根本不在接口 —— 一场 200 人同时开考的「开考洪峰」约 200 × (89ms 开考 + 3×8ms 保存) ≈ 几秒内消化完；真正该限的是登录并发（argon2），一批学生同时点登录会排队，属正常现象。压测脚本会往库里留 `【bench】`/`【bench2】` 前缀的学生、题目与答卷，可在用户管理删除学生、题目走软删除。
