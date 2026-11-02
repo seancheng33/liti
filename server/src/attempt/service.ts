@@ -461,15 +461,53 @@ export async function saveAnswer(
     .executeTakeFirst();
   if (!item) throw new HttpError(404, '题目不在本答卷中');
 
-  const optionOrder: number[] = JSON.parse(item.option_order);
+  await writeSelection(db, item.id, item.option_order, selectedOptionIds);
+}
+
+/** 把一组选项 id 过滤成本卷合法的选项后写库；单题保存与交卷快照共用 */
+async function writeSelection(
+  db: Db,
+  attemptItemId: number,
+  optionOrderJson: string,
+  selectedOptionIds: number[],
+): Promise<void> {
+  const optionOrder: number[] = JSON.parse(optionOrderJson);
   const valid = new Set(optionOrder);
   const selected = [...new Set(selectedOptionIds)].filter((id) => valid.has(id));
-
   await db
     .updateTable('attempt_item')
     .set({ selected: JSON.stringify(selected), answered_at: Date.now() })
-    .where('id', '=', item.id)
+    .where('id', '=', attemptItemId)
     .execute();
+}
+
+/**
+ * 交卷时随请求带来的答案快照。
+ *
+ * 为什么需要它：学生的网络可能在最后几分钟断掉，那几题的 PATCH 全失败了，
+ * 前端本地却是有答案的。等网络恢复再补发已经来不及（考场收卷了）。所以交卷这一步
+ * 顺带把「还没落盘的答案」写进去，一次请求解决问题。
+ *
+ * 只接受本卷内的题目，卷外的静默忽略 —— 交卷不能因为一条脏数据失败。
+ * 返回实际写进去的条数，前端可据此确认快照有没有被吃掉。
+ */
+async function applyAnswerSnapshot(
+  db: Db,
+  attemptId: number,
+  snapshot: { questionId: number; selectedOptionIds: number[] }[],
+): Promise<number> {
+  if (!snapshot.length) return 0;
+  const items = await db.selectFrom('attempt_item').selectAll().where('attempt_id', '=', attemptId).execute();
+  const byQuestion = new Map(items.map((it) => [it.question_id, it]));
+
+  let applied = 0;
+  for (const entry of snapshot) {
+    const item = byQuestion.get(entry.questionId);
+    if (!item) continue;
+    await writeSelection(db, item.id, item.option_order, entry.selectedOptionIds);
+    applied += 1;
+  }
+  return applied;
 }
 
 export async function reportViolation(
@@ -512,7 +550,12 @@ export async function reportViolation(
   return { count, autoSubmitted: false };
 }
 
-export async function submitAttempt(db: Db, attemptId: number, userId: number): Promise<void> {
+export async function submitAttempt(
+  db: Db,
+  attemptId: number,
+  userId: number,
+  snapshot: { questionId: number; selectedOptionIds: number[] }[] = [],
+): Promise<{ applied: number }> {
   let attempt = await getAttempt(db, attemptId);
   if (!attempt) throw new HttpError(404, '答卷不存在');
   if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
@@ -524,11 +567,16 @@ export async function submitAttempt(db: Db, attemptId: number, userId: number): 
     attempt = (await getAttempt(db, attemptId))!;
   }
 
+  // 先查超时再落快照：超时后不该再接受答案，否则「拖到最后一秒补答案」就成立了
   if (Date.now() > attempt.deadline_at) {
     await gradeAttempt(db, attemptId, 'timeout', 'expired');
     throw new HttpError(400, '已超过答题时间，自动交卷');
   }
+
+  // 落快照必须在判分之前 —— 判分读的就是 attempt_item.selected
+  const applied = await applyAnswerSnapshot(db, attemptId, snapshot);
   await gradeAttempt(db, attemptId, 'manual', 'submitted');
+  return { applied };
 }
 
 export async function getAttemptReview(db: Db, attemptId: number, userId: number) {

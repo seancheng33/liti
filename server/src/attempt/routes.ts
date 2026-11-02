@@ -163,8 +163,23 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
   app.post('/:id/submit', async (request) => {
     const user = authenticate(request);
     const { id } = request.params as { id: string };
-    await service.submitAttempt(db, Number(id), user.userId);
-    return { ok: true };
+    // 交卷时可以带一份答案快照：学生网络断过、PATCH 全失败时靠它兜底。
+    // 不传也照常交卷（老客户端、自动收卷都走这条路）。
+    const body = z
+      .object({
+        answers: z
+          .array(
+            z.object({
+              questionId: z.number().int(),
+              selectedOptionIds: z.array(z.number().int()).max(50),
+            }),
+          )
+          .max(1000)
+          .optional(),
+      })
+      .parse(request.body ?? {});
+    const r = await service.submitAttempt(db, Number(id), user.userId, body.answers ?? []);
+    return { ok: true, applied: r.applied };
   });
 
   app.get('/:id', async (request) => {
