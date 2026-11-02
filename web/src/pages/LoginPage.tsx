@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../theme';
 import { api } from '../api';
 import LoginForm from '../components/LoginForm';
+import ForgotPasswordModal from '../components/ForgotPasswordModal';
 
 /** 只接受站内相对路径，避免 ?next=https://evil 这种开放跳转 */
 function safeNext(raw: string | null): string {
@@ -23,6 +24,7 @@ export default function LoginPage() {
     siteName: '砺题 Liti',
     siteAnnouncement: '',
   });
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -132,8 +134,14 @@ export default function LoginPage() {
               <QuestionCircleOutlined /> 使用帮助
             </Link>
           </Typography.Paragraph>
+
+          <Typography.Paragraph style={{ textAlign: 'center', fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+            <a onClick={() => setForgotOpen(true)}>忘记密码？</a>
+          </Typography.Paragraph>
         </div>
       </div>
+
+      <ForgotPasswordModal open={forgotOpen} onClose={() => setForgotOpen(false)} />
     </div>
   );
 }

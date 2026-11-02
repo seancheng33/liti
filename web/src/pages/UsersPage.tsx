@@ -15,6 +15,7 @@ import {
   Typography,
   Upload,
   message,
+  theme as antdTheme,
 } from 'antd';
 import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { api, uploadXlsx } from '../api';
@@ -53,6 +54,7 @@ interface ImportSummary {
 
 export default function UsersPage() {
   const { user: me } = useAuth();
+  const { token } = antdTheme.useToken();
   const isAdmin = me?.role === 'admin';
   const [data, setData] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,6 +64,10 @@ export default function UsersPage() {
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [resetForm] = Form.useForm();
+  const [codeTarget, setCodeTarget] = useState<UserRow | null>(null);
+  const [issuedCode, setIssuedCode] = useState<string | null>(null);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [classFilter, setClassFilter] = useState<string>('__all__');
   const [importOpen, setImportOpen] = useState(false);
@@ -121,6 +127,22 @@ export default function UsersPage() {
       resetForm.resetFields();
     } catch (e) {
       message.error((e as Error).message);
+    }
+  }
+
+  /** 签发一次性重置码：教师/管理员生成，学生登录取码自助改密码 */
+  async function onIssueCode(r: UserRow) {
+    setCodeTarget(r);
+    setIssuedCode(null);
+    setCodeCopied(false);
+    setCodeLoading(true);
+    try {
+      const res = await api.post<{ code: string; expiresAt: number }>(`/api/users/${r.id}/reset-code`);
+      setIssuedCode(res.code);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setCodeLoading(false);
     }
   }
 
@@ -261,6 +283,7 @@ export default function UsersPage() {
           >
             重置密码
           </a>
+          <a onClick={() => onIssueCode(r)}>生成重置码</a>
           <Popconfirm title="确认删除该用户？" onConfirm={() => onDelete(r.id)} disabled={r.id === me?.userId}>
             <a style={{ color: r.id === me?.userId ? '#ccc' : undefined }}>删除</a>
           </Popconfirm>
@@ -449,6 +472,73 @@ export default function UsersPage() {
             <Input.Password />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 生成重置码 */}
+      <Modal
+        title={`重置码：${codeTarget?.username ?? ''}`}
+        open={!!codeTarget}
+        onCancel={() => setCodeTarget(null)}
+        footer={[
+          <Button key="close" onClick={() => setCodeTarget(null)}>
+            关闭
+          </Button>,
+        ]}
+      >
+        {codeLoading ? (
+          <Typography.Text type="secondary">生成中…</Typography.Text>
+        ) : issuedCode ? (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 14 }}
+              message="请把这串码当面或私发给本人"
+              description="重置码是一次性的、30 分钟内有效，用完后即作废。不要截图发到群里，也不要发给无关的人。"
+            />
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 6 }}>
+              重置码（点一下全选复制）：
+            </Typography.Paragraph>
+            <div
+              onClick={(e) => {
+                const t = e.currentTarget;
+                const range = document.createRange();
+                range.selectNodeContents(t);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                navigator.clipboard?.writeText(issuedCode).then(
+                  () => {
+                    setCodeCopied(true);
+                    setTimeout(() => setCodeCopied(false), 2000);
+                  },
+                  () => {},
+                );
+              }}
+              style={{
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 26,
+                letterSpacing: 6,
+                fontWeight: 700,
+                textAlign: 'center',
+                padding: '14px 8px',
+                background: token.colorFillSecondary,
+                borderRadius: 8,
+                cursor: 'pointer',
+                userSelect: 'all',
+              }}
+            >
+              {issuedCode}
+            </div>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 13 }}>
+              {codeCopied
+                ? '已复制到剪贴板'
+                : '提示：学生登录页点「忘记密码」，输入用户名、这串码和新密码即可自行重置，无需后台代劳。'}
+            </Typography.Paragraph>
+          </>
+        ) : (
+          <Typography.Text type="secondary">生成失败，请重试或刷新页面。</Typography.Text>
+        )}
       </Modal>
 
       {/* 导入学生名单 */}

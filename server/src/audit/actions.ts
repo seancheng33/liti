@@ -39,12 +39,15 @@ const LIST: AuditActionMeta[] = [
   { key: 'auth.login-failed', label: '登录失败', category: 'auth', severity: 'sensitive' },
   { key: 'auth.logout', label: '退出登录', category: 'auth', severity: 'normal' },
   { key: 'auth.change-password', label: '修改本人密码', category: 'auth', severity: 'sensitive' },
+  { key: 'auth.reset-password', label: '凭重置码改密码', category: 'auth', severity: 'critical' },
+  { key: 'auth.reset-failed', label: '重置密码失败', category: 'auth', severity: 'sensitive' },
   { key: 'auth.profile-update', label: '修改个人资料', category: 'auth', severity: 'normal' },
 
   // --- 账号 ---
   { key: 'user.create', label: '创建账号', category: 'user', severity: 'normal' },
   { key: 'user.update', label: '修改账号', category: 'user', severity: 'sensitive' },
   { key: 'user.reset-password', label: '重置密码', category: 'user', severity: 'sensitive' },
+  { key: 'user.reset-code', label: '签发重置码', category: 'user', severity: 'sensitive' },
   { key: 'user.delete', label: '删除账号', category: 'user', severity: 'critical' },
   { key: 'user.import', label: '批量导入学生', category: 'user', severity: 'normal' },
 

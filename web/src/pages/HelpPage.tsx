@@ -7,6 +7,7 @@ import {
   EyeOutlined,
   FileTextOutlined,
   FormOutlined,
+  KeyOutlined,
   PlayCircleOutlined,
   ProfileOutlined,
   SettingOutlined,
@@ -230,6 +231,7 @@ function HelpBody() {
                 { key: 'analysis', href: '#analysis', title: '逐题分析' },
                 { key: 'proctor', href: '#proctor', title: '实时监考' },
                 ...(isAdmin ? [{ key: 'audit', href: '#audit', title: '审计日志' }] : []),
+                { key: 'recover', href: '#recover', title: '忘记密码' },
                 { key: 'faq', href: '#faq', title: '常见问题' },
               ]}
             />
@@ -700,6 +702,34 @@ function HelpBody() {
               />
             </Card>
           )}
+
+          <Card id="recover" style={{ marginBottom: 16 }}>
+            <Title level={4} style={{ marginTop: 0 }}>
+              <KeyOutlined /> 忘记密码怎么办
+            </Title>
+            <Paragraph>
+              系统没有对接邮件/短信，所以不走「验证码发到你邮箱」那套。找回密码靠<Text strong>老师或管理员在后台签发的重置码</Text>：
+            </Paragraph>
+            <ol style={{ paddingLeft: 20, marginBottom: 0 }}>
+              <li>
+                学生：登录页点<Text strong>「忘记密码？」</Text>，填用户名、老师给的<Text strong>重置码</Text>和新密码，即可自行重置，不用等后台代劳。
+              </li>
+              <li>
+                老师/管理员：在<Text strong>「用户管理」</Text>里找到这个账号，点<Text strong>「生成重置码」</Text>，把弹窗里那串码当面或私发给本人。
+              </li>
+            </ol>
+            <Space direction="vertical" size={6} style={{ marginBottom: 12 }}>
+              <Text>· 重置码是<Text strong>一次性</Text>的：用完即作废，下次找回要重新生成。</Text>
+              <Text>· 有效期 <Text strong>30 分钟</Text>：过期就失效，重新生成一条新的即可（旧码自动作废）。</Text>
+              <Text>· 不区分大小写，输入时去掉空格就行。</Text>
+            </Space>
+            <Alert
+              type="warning"
+              showIcon
+              message="重置码不要发到群里"
+              description="重置码等于一次改密码的机会。截图发群里、或发给无关的人，对方都能用它改掉这个账号的密码。请当面或私聊交付，并提醒本人用完后立即丢弃。"
+            />
+          </Card>
 
           <Card id="faq">
             <Title level={4} style={{ marginTop: 0 }}>

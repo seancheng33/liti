@@ -237,6 +237,26 @@ export interface SettingRow {
 }
 
 /**
+ * 找回密码的一次性重置码（v0.14）。
+ * 自托管没 SMTP，走「教师签发码、学生登录取码设新密码」。
+ * 表里只存哈希，明文码只在签发响应里出现一次；同一账号同时只认最新签发的那一条。
+ */
+export interface PasswordResetRow {
+  id: Generated<number>;
+  user_id: number;
+  /** 重置码 sha256 哈希 */
+  token_hash: string;
+  /** 失效时间（毫秒），bigint */
+  expires_at: number;
+  /** 使用时间（毫秒）；非空 = 已用过，一次性 */
+  used_at: ColumnType<number | null, number | null | undefined, number | null>;
+  /** 签发人 user.id */
+  created_by: number | null;
+  /** 签发时间（毫秒） */
+  created_at: number;
+}
+
+/**
  * 审计日志：谁在什么时候对什么东西做了什么。
  *
  * actor_name / actor_role / target_label 都是**写入时的快照**，
@@ -276,4 +296,5 @@ export interface Database {
   wrong_question: WrongQuestionRow;
   setting: SettingRow;
   audit_log: AuditLogRow;
+  password_reset: PasswordResetRow;
 }

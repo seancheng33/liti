@@ -100,6 +100,7 @@
 | `wrong_question` | id, user_id, question_id, wrong_count, first_wrong_at, last_wrong_at, last_attempt_id, resolved_at, created_at, updated_at —— **每人一份，(user_id, question_id) 唯一** |
 | `import_batch` | id, filename, total, success, failed, errors(JSON), created_by, created_at |
 | `audit_log` | id, at(**bigint**), actor_id, actor_name(快照), actor_role(快照), action, target_type, target_id, target_label(快照), detail(JSON), ip |
+| `password_reset` | id, user_id, token_hash(**sha256hex(重置码)**), expires_at, used_at, created_by, created_at —— 库里只有哈希，明文码只在签发响应出现一次 |
 
 > v0.4 新增字段：`attempt.paused_at` / `paused_total_ms`、`attempt_item.flagged`、`paper.audience_mode` + `paper_audience`（迁移 `0008_exam_enhance`）。
 > v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
@@ -108,6 +109,7 @@
 > v0.11 新增：`attempt.last_seen_at`（**bigint**，心跳时间）、`attempt_violation.revoked_at`（**bigint**）/ `revoked_by` / `revoke_note` + 索引 `idx_violation_attempt`（迁移 `0012_proctor`、`0013_fix_proctor_timestamps`）。
 > v0.12 新增：`audit_log` 表 + 索引 `idx_audit_at` / `idx_audit_action` / `idx_audit_actor` / `idx_audit_target`（迁移 `0014_audit`）。`at` 同样是 **bigint**。
 > v0.13 新增：`paper.shuffle_questions`（integer，默认 0 = 不打乱题序；迁移 `0015_shuffle_questions`）。题序写进既有的 `attempt_item.order_no`，不新增表。
+> v0.14 新增：`password_reset` 表 + 索引 `idx_reset_user` / `idx_reset_expires`（迁移 `0016_password_reset`）。字段全部 **bigint** 时间戳，沿用「时间一律 epoch 毫秒」约定。
 
 **v0.8 迁移的两个坑**（`0011_exam_scale`）
 
@@ -611,6 +613,34 @@ order_no: i + 1
 
 乱序只是「让抄袭变麻烦」，不是安全边界。答案与解析的下发仍然由 `review_mode` / `analysis_published` 决定（服务端遮罩），题目在暂停时仍然整体不下发。别把乱序当成防作弊的终点。
 
+### 6.15 找回密码（v0.14）
+
+学校场景里的现实问题：学生名单批量导入后全校初始密码是同一个（见已知边界 28），谁改过密码、谁忘了密码，只能找管理员进后台改。v0.14 给教师也开了个口子 —— 教师在自己的电脑上就能给学生签发重置码，学生拿码自助改密，管理员不用当「改密码窗口」。
+
+#### 6.15.1 一次性重置码：库里有哈希没明文
+
+流程是「签发 → 线下转交 → 兑换」三步，码本身是主角：
+
+- **签发** `POST /api/users/:id/reset-code`（admin/teacher，教师仍受 `assertTeacherMayManage` 约束只能给学生签）：生成 8 位 base32 码，字母表 `ABCDEFGHJKMNPQRSTUVWXYZ23456789` —— **去掉 0/O/1/I/L**，这五个字形太容易混，学生抄在纸上根本分不清。
+- **库里只存 `sha256hex(code)`**。明文只在签发响应里出现**一次**，接口不提供「再看我刚发的码」 —— 弹窗关了又没抄下来，就重发一个。数据库拖走也换不出能用的码。
+- **有效期 30 分钟**（`RESET_CODE_TTL_MS`），`expires_at` 到点作废；兑换成功即写 `used_at`，**单次有效**。
+- **同一账号只认最新一码**：签发新码时先把旧的未用码全部作废。学生手上留了两张纸也不怕，只有最后那张能用。
+
+兑换走公开端点 `POST /api/auth/reset-password`，body 是 `{username, code, newPassword}`。服务端按 `user_id + token_hash + used_at IS NULL + expires_at > now` 查最新一条，命中才改密码。
+
+#### 6.15.2 兑换端是公开的，所以限流和不透露都要做齐
+
+兑换端点不需要登录（忘了密码的人恰恰登录不了），这扇门必须按公开接口对待：
+
+- **失败统一话术**：「重置码无效或已失效」。用户名不存在、码错、码已用过、码过期，四种情况返回完全一样的 400 —— 不给「这个用户名存在」的探测口子。
+- **限流复用 `FailBucket`**：按 `用户名|IP` 5 次/10 分钟 + 单 IP 20 次/10 分钟。8 位无歧义字符表约 33⁸ ≈ 1.4 万亿种组合，但限流防的不是暴力破解单个码，是防有人拿全校名单逐个试。
+- **审计不记明文码**：失败记 `auth.reset-failed`，`detail.reason` 只有 `no-such-user` / `no-match` / `used` / `expired` —— 审计端管理员能看到失败分布，但拿不到任何可复用的码。成功记 `auth.reset-password`（critical），签发记 `user.reset-code`（sensitive），detail 只含 username 与过期时间。
+- **改密即清会话**：与「本人改密码」同一套语义（v0.6），重置成功后该账号所有会话作废 —— 万一是别人捡了码改的，原设备立刻掉线。
+
+#### 6.15.3 为什么不走邮件/短信链接
+
+局域网部署的学校大多没有可达的 SMTP 和短信网关，「发链接」这条路在目标环境根本走不通。重置码是纸面可传递的：老师念一遍、学生抄下来、30 分钟内自己在登录页改掉。代价是码会经过人手 —— 所以把 TTL 压到 30 分钟、单次有效、签发留审计，三条兜住「纸条被第三个人捡到」的风险窗口。
+
 ---
 
 ## 7. API 设计（草案）
@@ -620,6 +650,7 @@ order_no: i + 1
 POST   /api/auth/login
 POST   /api/auth/logout
 GET    /api/auth/me
+POST   /api/auth/reset-password        # 忘记密码兑换：{username, code, newPassword}（公开，限流 5次/用户名·IP + 20次/IP，10 分钟）
 GET    /api/auth/sso/:provider/start
 GET    /api/auth/sso/:provider/callback
 
@@ -669,6 +700,7 @@ GET          /api/users/students             # 发布挑人 / 建组挑人；带
 GET          /api/users/classes              # 班级去重列表（admin/teacher），给筛选与导出下拉用
 GET          /api/users/template             # 学生名单导入模板 xlsx（admin/teacher）
 POST         /api/users/import               # { dryRun:1 } 只预检；逐行独立提交，返回 warnings/errors
+POST         /api/users/:id/reset-code       # 签发一次性重置码（admin/teacher，教师只能给学生；返回 {code, expiresAt}，明文只出现这一次）
 
 # 答题
 POST         /api/attempts                   # 开考（复用进行中答卷；超出该卷 max_attempts 报 400）
@@ -833,6 +865,14 @@ GET  /api/meta
 | `PaperPreviewModal` | 顶部标签加「题序乱序」（金色），与「选项乱序」（青色）区分。**提示语改成按实际配置生成** —— 原来写死「选项顺序会重新打乱」，一份关了选项乱序的卷子照样这么说，等于跟老师撒谎。现在四种组合各一句话，两个都关时说「按现在的顺序呈现」。 |
 | `HelpPage` | 「其他参数」里补题序乱序一条，重点写它的代价，而不只是好处。 |
 
+### 8.13 v0.14 页面变化
+
+| 页面 | 说明 |
+|---|---|
+| `LoginPage` | 登录卡底部加「忘记密码？」链接，弹 `ForgotPasswordModal`：用户名 + 重置码 + 新密码（确认一次）三项，Info Alert 写明「重置码由老师/管理员生成」。码输入**自动 trim + 转大写** —— 学生抄在纸上大小写分不清是常态，别让格式背锅。成功提示「密码已重置，请用新密码登录」。 |
+| `UsersPage` | 操作列加「生成重置码」（对本地账号显示）：弹窗即调 `POST /api/users/:id/reset-code`，**打开弹窗就签发**，不做「先弹窗再点确认」的两段式 —— 少一步就少一个「弹窗开着码还没发」的误会。弹窗内大号等宽字体展示 8 位码 + 点击复制 + Warning Alert（「明文只显示这一次，请立即转交学生；30 分钟内有效」）。关闭弹窗后码无法再找回，只能重发（重发会作废旧码）。 |
+| `HelpPage` | 目录加「忘记密码」章节（**所有人可见**，因为看这章的人恰恰没登录、也可能是学生），分「学生怎么改」与「老师怎么发」两条步骤清单，配 Warning：码 30 分钟有效、只能用一次、失败了让老师重发。 |
+
 ---
 
 ## 9. 测试策略与门禁
@@ -871,6 +911,7 @@ GET  /api/meta
 | M13 实时监考（v0.11） | 学生端心跳与在线判定、监考视图（状态/已答/剩余/违规/最后心跳）、违规明细与软撤销/恢复、心跳驱动强制收卷跳转 | 73 项验收脚本双库全绿 + 28 项界面验收 + 8 张截图复查 |
 | M14 审计日志（v0.12） | 38 个动作显式埋点（登录/账号/试卷/题库/分组/分类/设置/考试/审计）、操作人或对象名称快照、分类·分级·关键字·对象筛选、CSV 导出、「不删自己」的清理 | 77 项验收脚本双库全绿 + 22 项界面验收 + 9 张截图复查 |
 | M15 题序乱序（v0.13） | 每人一份卷面顺序（开考定序、落库不改）、与选项乱序可叠加、判分与统计按 question_id 与卷面顺序两套口径、预览提示语按配置生成 | 47 项验收脚本双库全绿 + 19 项界面验收 + 5 张截图复查 |
+| M16 运维与找回密码（v0.14） | 一次性重置码签发与兑换（库只存哈希、30 分钟、单次有效、旧码自动作废）、公开兑换端限流与统一失败话术、改密清会话、审计埋点 3 动作 | 20 项验收脚本双库全绿 + 12 项界面验收 + 截图复查 |
 
 ---
 

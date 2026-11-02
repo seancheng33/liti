@@ -6,6 +6,7 @@ import { authenticate } from '../plugins/auth.js';
 import { requireRole, type AuthUser } from '../rbac.js';
 import { HttpError } from '../http-error.js';
 import { hashPassword } from '../auth/password.js';
+import { generateResetCode, sha256hex, RESET_CODE_TTL_MS } from '../auth/reset.js';
 import { groupNamesByUser, purgeUserFromGroups } from '../group/service.js';
 import { buildStudentTemplate, parseStudentRows, DEFAULT_STUDENT_PASSWORD } from '../excel/student.js';
 import { purgeUserWrong } from '../wrong/service.js';
@@ -387,6 +388,52 @@ export async function userRoutes(app: FastifyInstance, opts: { db: Db }): Promis
     }
 
     return { ok: true };
+  });
+
+  // 签发一次性重置码（找回密码用）：教师/管理员生成，学生登录取码设新密码
+  app.post('/:id/reset-code', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+
+    const target = await db.selectFrom('user').selectAll().where('id', '=', Number(id)).executeTakeFirst();
+    if (!target) throw new HttpError(404, '用户不存在');
+    assertTeacherMayManage(user, target);
+    if (target.provider !== 'local' || !target.password_hash) {
+      throw new HttpError(400, '该账号不支持本地密码重置');
+    }
+
+    const now = Date.now();
+    // 同一账号同时只认最新签发的那一条：把旧的未用码作废，缩小穷举面
+    await db
+      .updateTable('password_reset')
+      .set({ used_at: now })
+      .where('user_id', '=', target.id)
+      .where('used_at', 'is', null)
+      .execute();
+
+    const code = generateResetCode(8);
+    await db
+      .insertInto('password_reset')
+      .values({
+        user_id: target.id,
+        token_hash: sha256hex(code),
+        expires_at: now + RESET_CODE_TTL_MS,
+        created_by: user.userId,
+        created_at: now,
+      })
+      .execute();
+
+    // 只回显明文码这一次；不记码本身，只记「谁给谁签了、什么时候失效」
+    await audit(db, request, {
+      action: 'user.reset-code',
+      targetType: 'user',
+      targetId: target.id,
+      targetLabel: `${target.display_name}（${target.username}）`,
+      detail: { username: target.username, expiresAt: now + RESET_CODE_TTL_MS },
+    });
+
+    return { code, expiresAt: now + RESET_CODE_TTL_MS };
   });
 
   // 重置密码

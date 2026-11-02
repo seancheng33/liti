@@ -8,6 +8,7 @@ import { HttpError } from '../http-error.js';
 import { authenticate } from '../plugins/auth.js';
 import { parsePrefs, serializePrefs } from '../user-prefs.js';
 import { audit, writeAudit } from '../audit/service.js';
+import { sha256hex } from './reset.js';
 
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
@@ -85,6 +86,26 @@ let timingHash: string | null = null;
 async function dummyPasswordHash(): Promise<string> {
   if (!timingHash) timingHash = await hashPassword('liti-dummy-password-for-timing');
   return timingHash;
+}
+
+// ---------- 找回密码：兑换端限流 ----------
+// 重置码本身有 8 位 base32 + 单次有效 + 30 分钟过期的组合保护，但要挡住「对着一个用户名穷举」，
+// 再叠一层跟登录同款的内存滑动窗口。单容器单进程，内网部署没有多实例需求。
+const RESET_WINDOW_MS = 10 * 60 * 1000;
+/** 同一个「用户名 + IP」允许的失败次数 */
+const RESET_MAX_FAILS = 5;
+/** 同一个 IP 在窗口内允许的失败总数 */
+const RESET_MAX_FAILS_PER_IP = 20;
+const resetFails = new Map<string, FailBucket>();
+const resetIpFails = new Map<string, FailBucket>();
+
+function resetRemainSec(username: string, ip: string): number {
+  return Math.max(remainSec(resetFails, failKey(username, ip), RESET_MAX_FAILS), remainSec(resetIpFails, ip, RESET_MAX_FAILS_PER_IP));
+}
+
+function noteResetFail(username: string, ip: string): void {
+  bump(resetFails, failKey(username, ip));
+  bump(resetIpFails, ip);
 }
 
 export async function authRoutes(
@@ -292,6 +313,89 @@ export async function authRoutes(
       targetType: 'user',
       targetId: user.userId,
       targetLabel: row.display_name,
+    });
+
+    return { ok: true };
+  });
+
+  // 凭重置码改密码（公开接口，未登录也能调）：学生锁死密码后自助解开
+  app.post('/reset-password', async (request) => {
+    const body = z
+      .object({
+        username: z.string().min(1).max(64),
+        code: z.string().min(4).max(32),
+        newPassword: z.string().min(6).max(128),
+      })
+      .parse(request.body);
+
+    const waitSec = resetRemainSec(body.username, request.ip);
+    if (waitSec > 0) {
+      throw new HttpError(429, `重置尝试次数过多，请 ${Math.ceil(waitSec / 60)} 分钟后再试`);
+    }
+
+    const user = await db
+      .selectFrom('user')
+      .selectAll()
+      .where('username', '=', body.username)
+      .where('provider', '=', 'local')
+      .executeTakeFirst();
+
+    const hash = sha256hex(body.code.toUpperCase().trim());
+    const now = Date.now();
+    // 只认「属于这个用户 + 哈希对得上 + 没用过 + 没过期」的最新一条
+    const row = user
+      ? await db
+          .selectFrom('password_reset')
+          .selectAll()
+          .where('user_id', '=', user.id)
+          .where('token_hash', '=', hash)
+          .where('used_at', 'is', null)
+          .where('expires_at', '>', now)
+          .orderBy('created_at', 'desc')
+          .executeTakeFirst()
+      : undefined;
+
+    if (!user || !user.password_hash || !row) {
+      noteResetFail(body.username, request.ip);
+      // 原因只写进审计，不向客户端透露（避免借「用户不存在」「码过期」做枚举）
+      let reason = user ? 'no-match' : 'no-such-user';
+      if (user?.password_hash) {
+        const anyRow = await db
+          .selectFrom('password_reset')
+          .selectAll()
+          .where('user_id', '=', user.id)
+          .where('token_hash', '=', hash)
+          .executeTakeFirst();
+        if (anyRow) reason = anyRow.used_at != null ? 'used' : Number(anyRow.expires_at) <= now ? 'expired' : 'no-match';
+      }
+      await writeAudit(db, {
+        actor: { id: user?.id ?? null, name: user?.display_name || body.username, role: user?.role ?? null },
+        action: 'auth.reset-failed',
+        targetType: 'user',
+        targetId: user?.id ?? null,
+        targetLabel: body.username,
+        detail: { username: body.username, reason },
+        ip: request.ip,
+      });
+      throw new HttpError(400, '重置码无效或已失效');
+    }
+
+    // 校验通过：改密码 + 标记已用 + 清掉该账号全部会话（同后台重置的处置）
+    await db
+      .updateTable('user')
+      .set({ password_hash: await hashPassword(body.newPassword), updated_at: now })
+      .where('id', '=', user.id)
+      .execute();
+    await db.updateTable('password_reset').set({ used_at: now }).where('id', '=', row.id).execute();
+    await db.deleteFrom('session').where('user_id', '=', user.id).execute();
+
+    await writeAudit(db, {
+      actor: { id: user.id, name: user.display_name || user.username, role: user.role },
+      action: 'auth.reset-password',
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.display_name,
+      ip: request.ip,
     });
 
     return { ok: true };
