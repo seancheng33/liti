@@ -28,9 +28,11 @@
 ### 2.1 拉代码
 
 ```bash
-git clone http://192.168.1.88:3000/sean/liti.git
+git clone https://github.com/seancheng33/liti.git
 cd liti
 ```
+
+> 内网拉不动 GitHub 时可以改用 Gitea 镜像：`git clone http://192.168.1.88:3000/sean/liti.git`，两边内容一致。
 
 想固定到某个版本，切到对应 tag / commit：
 

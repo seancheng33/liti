@@ -18,9 +18,11 @@
 ## 2. 获取代码
 
 ```bash
-git clone http://192.168.1.88:3000/sean/liti.git
+git clone https://github.com/seancheng33/liti.git
 cd liti
 ```
+
+> 仓库同时在内网 Gitea（`http://192.168.1.88:3000/sean/liti.git`）有一份镜像，内网环境拉不动 GitHub 时用那一个，内容一致。
 
 ## 3. 安装依赖
 
