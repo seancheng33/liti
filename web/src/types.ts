@@ -65,6 +65,8 @@ export interface Paper {
   results_published?: number;
   /** 1 = 学生能看到答案与解析 */
   analysis_published?: number;
+  /** 这份卷子允许作答的次数；练习卷不看它 */
+  max_attempts?: number;
   audience_mode?: 'all' | 'selected';
   audience_user_ids?: number[];
   audience_group_ids?: number[];
@@ -75,12 +77,12 @@ export interface Paper {
   /** 练习卷来源：random / wrong；普通试卷为 null */
   practice_source?: 'random' | 'wrong' | null;
   random_config?: PaperRule[] | null;
-  /** 学生视角：已作答次数 / 剩余次数（教师/管理员看不到这两项） */
+  /** 学生视角：已作答次数 / 剩余次数（教师/管理员看不到这两项；练习卷 remaining 为 null） */
   attempt_count?: number;
-  remaining_attempts?: number;
+  remaining_attempts?: number | null;
 }
 
-/** 每个学生最多可作答次数（练习卷不受限） */
+/** 历史默认作答次数（v0.8 起改成按卷配置，这个只作为缺省值兜底） */
 export const MAX_ATTEMPTS_PER_PAPER = 3;
 
 export interface AttemptOption {

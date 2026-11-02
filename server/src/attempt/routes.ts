@@ -47,7 +47,9 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     const q = request.query as Record<string, unknown>;
     const paperId = q.paperId != null ? Number(q.paperId) : undefined;
     if (paperId != null && (!Number.isInteger(paperId) || paperId <= 0)) throw new HttpError(400, '试卷编号无效');
-    const buf = await exportAttemptsXlsx(db, { paperId });
+    // 按班导出：教务一学期会按班发好几轮成绩单
+    const className = typeof q.className === 'string' && q.className.trim() ? q.className.trim() : undefined;
+    const buf = await exportAttemptsXlsx(db, { paperId, className });
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header(
       'Content-Disposition',

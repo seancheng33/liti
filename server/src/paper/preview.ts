@@ -35,6 +35,8 @@ export interface PaperPreviewMeta {
   totalScore?: number;
   startAt?: number | null;
   endAt?: number | null;
+  /** 允许作答次数（练习卷不限，不显示） */
+  maxAttempts?: number;
 }
 
 export interface PaperPreview extends PaperPreviewMeta {
@@ -144,6 +146,7 @@ export async function previewPaperById(db: Db, paperId: number): Promise<PaperPr
     shuffleOptions: paper.shuffle_options === 1,
     status: paper.status,
     perQuestionScore: paper.per_question_score,
+    maxAttempts: paper.max_attempts,
     totalScore: items.length * paper.per_question_score,
     startAt: paper.start_at,
     endAt: paper.end_at,

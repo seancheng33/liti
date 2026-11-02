@@ -30,12 +30,16 @@ export interface PaperInput {
   resultsPublished?: boolean;
   /** 是否公布答案与解析，默认公布 */
   analysisPublished?: boolean;
+  /** 每份试卷允许作答的次数（1–99），默认 3；正式考试通常设 1 */
+  maxAttempts?: number;
 }
 
 export const MAX_PAPER_QUESTIONS = 100;
 /** 单题分值上限与总分上限（100 题 × 100 分 = 10000） */
 export const MAX_PER_QUESTION_SCORE = 100;
 export const MAX_TOTAL_SCORE = MAX_PAPER_QUESTIONS * MAX_PER_QUESTION_SCORE;
+/** 单卷作答次数上限（99 次够宽松了，再大说明该用练习卷） */
+export const MAX_ATTEMPT_LIMIT = 99;
 
 export function validatePaperInput(input: PaperInput): string[] {
   const errors: string[] = [];
@@ -46,6 +50,12 @@ export function validatePaperInput(input: PaperInput): string[] {
   if (input.perQuestionScore != null) {
     if (!Number.isInteger(input.perQuestionScore) || input.perQuestionScore < 1 || input.perQuestionScore > MAX_PER_QUESTION_SCORE) {
       errors.push(`每题分值须为 1–${MAX_PER_QUESTION_SCORE} 的整数`);
+    }
+  }
+
+  if (input.maxAttempts != null) {
+    if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1 || input.maxAttempts > MAX_ATTEMPT_LIMIT) {
+      errors.push(`作答次数须为 1–${MAX_ATTEMPT_LIMIT} 的整数`);
     }
   }
 

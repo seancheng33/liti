@@ -68,6 +68,7 @@ async function insertPaper(db: AnyDb, input: PaperInput, userId: number | null, 
       per_question_score: input.perQuestionScore ?? 1,
       results_published: input.resultsPublished === false ? 0 : 1,
       analysis_published: input.analysisPublished === false ? 0 : 1,
+      max_attempts: input.maxAttempts ?? MAX_ATTEMPTS_PER_PAPER,
       created_by: userId,
       created_at: now,
       updated_at: now,
@@ -336,7 +337,10 @@ export async function listPapers(
       maxAttempts: MAX_ATTEMPTS_PER_PAPER,
       items: withAudience.map((p) => {
         const used = usedMap.get(p.id) ?? 0;
-        return { ...p, attempt_count: used, remaining_attempts: Math.max(0, MAX_ATTEMPTS_PER_PAPER - used) };
+        // 练习卷不限次数（remaining_attempts=null），考试卷按自己配的上限算
+        if (p.practice === 1) return { ...p, attempt_count: used, remaining_attempts: null };
+        const limit = p.max_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+        return { ...p, attempt_count: used, remaining_attempts: Math.max(0, limit - used) };
       }),
     };
   }

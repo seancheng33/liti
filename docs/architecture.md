@@ -83,12 +83,12 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `user` | id, username, display_name, password_hash?, role, provider(local/oidc), external_id, status, prefs(JSON) |
+| `user` | id, username, display_name, password_hash?, role, provider(local/oidc), external_id, status, prefs(JSON), **student_no**, **class_name** |
 | `session` | id, user_id, token_hash, expires_at, ip, ua |
 | `category` | id, name, parent_id, sort |
 | `question` | id, type(single/multiple), stem, images(JSON), explanation, category_id, tags(JSON), status(active/archived), content_hash, created_by, created_at, updated_at |
 | `question_option` | id, question_id, content, images(JSON), is_correct, sort_order |
-| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, practice_source(random/wrong), audience_mode(all/selected), **start_at**, **end_at**, **allow_student_pause**, **per_question_score**, **results_published**, **analysis_published**, created_by |
+| `paper` | id, title, mode(random/fixed), question_count, duration_sec, pass_score, review_mode, shuffle_options, random_config(JSON), status, practice, practice_source(random/wrong), audience_mode(all/selected), **start_at**, **end_at**, **allow_student_pause**, **per_question_score**, **results_published**, **analysis_published**, **max_attempts**, created_by |
 | `paper_item` | id, paper_id, question_id, order_no, score |
 | `paper_audience` | id, paper_id, user_id, created_at —— 可见白名单（点名到人） |
 | `paper_audience_group` | id, paper_id, group_id, created_at —— 可见白名单（挂整个分组） |
@@ -103,6 +103,12 @@
 > v0.4 新增字段：`attempt.paused_at` / `paused_total_ms`、`attempt_item.flagged`、`paper.audience_mode` + `paper_audience`（迁移 `0008_exam_enhance`）。
 > v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
 > v0.7 新增：`paper.start_at` / `end_at` / `allow_student_pause` / `per_question_score` / `results_published` / `analysis_published`（迁移 `0010_exam_window`）；同期加索引 `idx_attempt_status_deadline`、`idx_attempt_paper`，给 30s 一次的自动收卷扫描用。
+> v0.8 新增：`paper.max_attempts`（默认 3）、`user.student_no`（**varchar(32)**，全校唯一）、`user.class_name`（**varchar(64)**）+ 索引 `idx_user_student_no` / `idx_user_class_name`（迁移 `0011_exam_scale`）。
+
+**v0.8 迁移的两个坑**（`0011_exam_scale`）
+
+1. **学号不能用 `text`**：MySQL 不允许对 TEXT/BLOB 列建不带前缀长度的索引，报 `BLOB/TEXT column 'student_no' used in key specification without a key length`。所以学号/班级都用 `varchar(n)`。
+2. **迁移必须幂等**：MySQL 的 DDL 会隐式提交，不在迁移事务里。中途失败会留下半截表结构（列加了、索引没加），而 Kysely 又不记录这次成功，重启后整段重跑就会撞 `Duplicate column`，服务起不来。所以迁移里先用 `db.introspection.getTables()` 查列是否存在再 `addColumn`，索引建在 try/catch 里放过 `already exist` / `Duplicate key name`。**新增迁移一律照这个写法**。
 
 **可移植性约定（SQLite / MySQL 双库关键）**
 
@@ -158,13 +164,15 @@
 `attempt_item.flagged` 一对一存，不在前端本地存 —— 否则换设备 / 刷新就丢。
 只影响答题卡显示，不参与判分。
 
-### 6.4.2 作答次数上限（v0.4）
+### 6.4.2 作答次数上限（v0.4 引入，v0.8 改为按卷配置）
 
-- `MAX_ATTEMPTS_PER_PAPER = 3`，统计 `status in (submitted, expired)` 的答卷数。进行中的不算。
+- v0.4 是写死的常量 `MAX_ATTEMPTS_PER_PAPER = 3`，对统考来说是硬伤——正式考试必须「一场只给一次」。v0.8 改成 `paper.max_attempts`（1–99，默认 3，建卷时填），常量退化成「老调用方不传时的兜底默认值」。
+- 超限报错把上限和已用次数都写出来：「这份试卷最多可作答 1 次，你已用完 1 次」。只说「已达上限」学生看不懂。
+- 统计只数 `status in (submitted, expired)` 的答卷，进行中的不算。
 - 开考时若已有 `in_progress` 答卷且未过期，**直接复用**（返回同一个 id），不新开也不占次数 ——
-  否则学生刷新几次就把 3 次用完了。
-- 练习卷（`practice=1`）不受限。
-- 学生列表附带 `attempt_count / remaining_attempts`，前端据此把「开始答题」换成「次数已用完」。
+  否则学生刷新几次就把次数用完了。
+- 练习卷（`practice=1`）不受限，`remaining_attempts` 下发 `null`，前端显示「不限次数」。**注意别把 `null` 当 0**：`remaining_attempts ?? limit` 会把 null 洗成上限，`null || 0` 会把按钮禁掉。判断顺序必须是先判 `=== null`。
+- 学生列表附带 `attempt_count / remaining_attempts`（按各自 `max_attempts` 算），前端据此把「开始答题」换成「次数已用完」。
 
 ### 6.4.3 试卷可见范围（v0.4）
 
@@ -305,6 +313,36 @@
 - `DELETE /api/papers/:id` 先数答卷。有答卷返回 400「这份试卷已有 N 份答卷，不能删除（成绩需要可追溯）；请改用『归档』」。
 - 归档 `POST /:id/archive` → `status='archived'`：学生列表里消失，成绩册照样能导出，答卷与判分记录全留。这是唯一能「下线」又不丢历史的方式。
 
+### 6.9 学校/考点规模能力（v0.8）
+
+v0.7 把「一场考试的纪律」管住了，但**一个年级 400 人怎么进系统**没解决——手工一个个建账号，教务是不会用的。v0.8 补的是「成建制」的那部分。
+
+#### 6.9.1 学号与班级
+
+- `user.student_no`：全校唯一，可空（教师/管理员不需要）。格式限 `[a-zA-Z0-9_-]`，≤32 字符——学号里塞空格、斜杠、中文会对不上任何一份学校花名册。
+- `user.class_name`：自由文本 ≤64 字符。**不做班级表**：学校的班级命名法五花八门（「高一(3)班」/「2026届3班」/「1班」），建一张表就得先做一套班级管理页面，收益不抵成本。班级目前是「标签」，不是「实体」。
+- 学号唯一性在**服务端**校验并返回 409「学号 X 已被其他账号占用」，不靠数据库唯一索引兜底报错（那样前端只能看到一句 `UNIQUE constraint failed`）。索引照建，是最后一道保险。
+- 编辑语义：`studentNo` 传 `undefined` = 不动，传 `null` = 清空。这两者必须区分，否则「只改班级」会把学号抹掉。
+
+#### 6.9.2 学生名单批量导入
+
+`GET /api/users/template` 下发 xlsx（6 列：用户名/姓名/学号/班级/初始密码/分组），`POST /api/users/import` 接收。与题库导入的三点不同：
+
+1. **逐行独立提交，不是整批事务**。1000 人的表里错一行就全批回滚，教务会疯。改为每行自己一个事务：成功的进来，失败的进 `errors[]`，重名/重学号的进 `warnings[]` 并跳过。返回 `{ total, created, skipped, failed, warnings, errors, defaultPassword, ids }`。
+2. **argon2 哈希按明文缓存**。初始密码通常全校统一，1000 行各算一次 argon2 会超时。按密码字符串做 Map 缓存，实际只算一次（argon2 默认参数单次约 50–100ms，1000 次就是 100 秒）。
+3. **`dryRun=1` 只预检不写库**。前端流程是「上传 → 预检 → 看报告 → 确认导入」，预检和正式导入走同一段代码，只是最后不落库，避免「预检说没问题、真导却炸了」。
+
+分组按**名字**匹配现有分组，匹配不上只记 warning 不报错（不因为一个组名打错就让整批人进不来）。默认密码 `student123`，返回给管理员用于告知学生。
+
+#### 6.9.3 成绩册按班级导出
+
+`GET /api/attempts/export?paperId=&className=`。v0.7 的成绩册是「整场一张表」，一个年级 400 人全在一起，班主任没法用。现在：
+
+- 列首改为**学号**（教务认学号不认用户名），列序：学号 / 姓名 / 班级 / 用户名 / 成绩 / 总分 / 是否及格 / 答对 / 题数 / 状态 / 开始时间 / 交卷时间 / 交卷原因。
+- `className` 过滤作用在**应考名单**上（不是答卷上），所以「本班应考 40 人、实考 38 人」照样成立，缺考的人还在表里。
+- 整场导出时按「班级 → 学号 → 用户名」排序，同班的人聚在一起，方便剪开分发。
+- 「考试信息」表在按班导出时额外给三行：本次导出班级 / 该场应考总人数 / 本班应考人数。没有这三个数字，拿到表的人无法判断这份表全不全。
+
 ---
 
 ## 7. API 设计（草案）
@@ -357,11 +395,14 @@ POST         /api/papers/:id/archive         # 归档：学生看不到，成绩
 POST         /api/papers/:id/publish-results # { results?, analysis? } 分开发布成绩 / 解析
 POST         /api/papers/:id/close           # 强制收卷：所有进行中的答卷立即判分
 
-# 学生名册（发布挑人 / 建组挑人；只给 id/用户名/显示名）
-GET          /api/users/students
+# 学生名册 / 用户管理（v0.8）
+GET          /api/users/students             # 发布挑人 / 建组挑人；带学号班级
+GET          /api/users/classes              # 班级去重列表（admin/teacher），给筛选与导出下拉用
+GET          /api/users/template             # 学生名单导入模板 xlsx（admin/teacher）
+POST         /api/users/import               # { dryRun:1 } 只预检；逐行独立提交，返回 warnings/errors
 
 # 答题
-POST         /api/attempts                   # 开考（复用进行中答卷；超出 3 次报 400）
+POST         /api/attempts                   # 开考（复用进行中答卷；超出该卷 max_attempts 报 400）
 POST         /api/attempts/practice          # 自助练习：source=random|wrong（错题练习走 wrong）
 PATCH        /api/attempts/:id/answers       # 自动保存
 PATCH        /api/attempts/:id/flag          # 题目标记
@@ -371,7 +412,7 @@ POST         /api/attempts/:id/violations    # 违规上报（暂停中忽略）
 POST         /api/attempts/:id/submit        # 交卷
 GET          /api/attempts/:id/review        # 结果与解析（未发布时分数/对错一律 null）
 GET          /api/attempts?mine=1            # 我的记录
-GET          /api/attempts/export            # 全站答卷流水 xlsx；?paperId= 导出单场成绩册（含缺考）
+GET          /api/attempts/export            # 全站答卷流水 xlsx；?paperId= 单场成绩册（含缺考）；?className= 按班导出
 
 # 系统
 GET  /api/health
@@ -475,6 +516,15 @@ GET  /api/meta
 | `HomePage` | 试卷卡片显示「满分 X · 及格 Y」；未到开考 / 已结束给出提示，开始按钮按时间窗口禁用。 |
 | `PaperPreviewModal` | 显示「满分 X · 及格 Y」；`reviewMode` 文案支持 `never`（永不公布）。 |
 
+### 8.9 v0.8 页面变化
+
+| 页面 | 说明 |
+|---|---|
+| `UsersPage` | 列改为 ID / 用户名 / 姓名 / **学号** / **班级** / 角色 / 状态 / 分组 / 操作；**删掉「来源」「创建时间」两列**——两列价值最低，却把操作列挤成了竖排。SSO 来源改成用户名旁的小 Tag。顶部加筛选条（题干搜索 + 班级下拉 + 「共 N 人」），`useMemo` 前端过滤（用户数量在「一个年级几百人」量级，一次拉全量比每敲一个字打一次接口好）。页头加「导入学生名单」，新建/编辑弹窗加学号、班级字段。`scroll={{ x: 1090 }}` + 操作列 `fixed: 'right'`，防止窄屏横向溢出时按钮跟着滚走。 |
+| `UsersPage` 导入弹窗 | 三步式：① 下载模板（链接带 `download`，走 cookie 鉴权）② 上传 → 先跑 `dryRun=1` 预检 ③ 看结果报告（成功 / 跳过 / 失败三个 Tag + 错误表 + 警告表）→ 预检通过才出现「确认导入 N 人」。导入成功后回显默认密码与「已导入 N 人，请把初始密码告知学生」。整个过程不刷新页面也能重来。 |
+| `PapersPage` | 新建弹窗「考试组织」卡加「**可作答次数**」（`InputNumber` 1–99），下方一行提示：「正式统考建议『可作答次数 = 1、学生可自行暂停 = 关、成绩与解析 = 考完统一公布』」。学生视角剩余次数按卷算：`remaining_attempts === null` 显示「不限次数」，`?? limit` 兜底老接口。操作列的禁用判断也先判 `null` 再比大小，否则练习卷会被当成 0 次而禁掉按钮。 |
+| `PapersPage` 按班级导出 | 「更多」下拉新增「按班级导出成绩」→ 弹窗说明 + 班级下拉（数据来自 `GET /api/users/classes`）→ 跳转 `?paperId=&className=`。不给选择就导出整场，给了就只出这个班。 |
+
 ---
 
 ## 9. 测试策略与门禁
@@ -507,6 +557,7 @@ GET  /api/meta
 | M7 练习与组织（v0.5） | 练习中心（随机 + 错题）、独立错题库、错题练习卷、学生分组、分组可见范围、教师管理学生、题库导出 | 105 项验收脚本双库全绿 + 28 项界面验收 + 9 张截图复查 |
 | M8 安全加固（v0.6） | 会话状态校验、试卷可见性收口、练习卷归属校验、登录双维度限流、改密清会话、安全响应头、字段长度上限 | 63 项安全用例双库全绿 |
 | M9 正式考试场景（v0.7） | 考试时间窗口与统一收卷、禁学生自暂停、成绩与解析分开发布、每题分值与绝对分及格判定、含缺考的成绩册、有答卷改归档 | 60 项验收脚本双库全绿 + 18 项界面验收 + 4 张截图复查 |
+| M10 成建制能力（v0.8） | 作答次数按卷配置、学号与班级字段、学生名单批量导入、成绩册按班级导出 | 66 项验收脚本双库全绿 + 27 项界面验收 + 5 张截图复查 |
 
 ---
 
@@ -545,3 +596,5 @@ GET  /api/meta
 | 29 | 学生分组（v0.5） | `/api/groups` + `student_group_member`；发布弹窗可选分组，分组加人立即生效 |
 | 30 | 教师可添加/管理学生（v0.5） | 教师只能看/建/改/删学生，不能提权、不能碰 admin/teacher、不能删自己 |
 | 31 | 题库导出（v0.5） | `GET /api/questions/export`，12 列与导入模板一致；实测导出文件回导后全部命中「已有题目」 |
+
+> 第 32 项起（v0.6 安全加固、v0.7 正式考试场景、v0.8 成建制能力）的需求对照统一维护在 [`acceptance.md`](./acceptance.md) 的「需求对照」表，本文不再重复，避免两处编号打架。

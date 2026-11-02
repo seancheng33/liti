@@ -32,6 +32,8 @@ const paperSchema = z.object({
   allowStudentPause: z.boolean().optional(),
   resultsPublished: z.boolean().optional(),
   analysisPublished: z.boolean().optional(),
+  /** 每份试卷允许作答的次数，默认 3；正式考试一般设 1 */
+  maxAttempts: z.number().int().min(1).max(99).optional(),
 });
 
 const publishResultsSchema = z.object({
@@ -95,6 +97,7 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
       shuffleOptions: body.shuffleOptions !== false,
       startAt: body.startAt ?? null,
       endAt: body.endAt ?? null,
+      maxAttempts: body.maxAttempts ?? 3,
       status: 'draft',
       items: await previewItemsInOrder(db, questionIds),
     };

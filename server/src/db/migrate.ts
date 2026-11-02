@@ -9,6 +9,7 @@ import * as migration0007 from '../migrations/0007_question_media.js';
 import * as migration0008 from '../migrations/0008_exam_enhance.js';
 import * as migration0009 from '../migrations/0009_practice_wrong_group.js';
 import * as migration0010 from '../migrations/0010_exam_window.js';
+import * as migration0011 from '../migrations/0011_exam_scale.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
@@ -21,6 +22,7 @@ const migrations: Record<string, Migration> = {
   '0008_exam_enhance': migration0008,
   '0009_practice_wrong_group': migration0009,
   '0010_exam_window': migration0010,
+  '0011_exam_scale': migration0011,
 };
 
 const provider: MigrationProvider = {

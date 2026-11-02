@@ -1,7 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tag, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
-import { api } from '../api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Radio,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+  Upload,
+  message,
+} from 'antd';
+import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { api, uploadXlsx } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 
@@ -16,8 +32,23 @@ interface UserRow {
   status: string;
   provider: string;
   created_at: number;
+  /** 学号（学生才有，全校唯一） */
+  studentNo?: string | null;
+  /** 班级（学生才有） */
+  className?: string | null;
   /** 所在分组（学生才有） */
   groups?: string[];
+}
+
+interface ImportSummary {
+  dryRun: boolean;
+  total: number;
+  created: number;
+  skipped: number;
+  failed: number;
+  warnings: { row: number; message: string }[];
+  errors: { row: number; message: string }[];
+  defaultPassword: string;
 }
 
 export default function UsersPage() {
@@ -31,6 +62,12 @@ export default function UsersPage() {
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [resetForm] = Form.useForm();
+  const [keyword, setKeyword] = useState('');
+  const [classFilter, setClassFilter] = useState<string>('__all__');
+  const [importOpen, setImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState<ImportSummary | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +124,23 @@ export default function UsersPage() {
     }
   }
 
+  async function runImport(file: File, dryRun: boolean) {
+    setImporting(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const res = (await uploadXlsx(`/api/users/import?dryRun=${dryRun ? '1' : '0'}`, buf)) as ImportSummary;
+      setImportResult(res);
+      if (!dryRun) {
+        message.success(`已导入 ${res.created} 个学生${res.skipped ? `，跳过 ${res.skipped} 行` : ''}`);
+        load();
+      }
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function onDelete(id: number) {
     try {
       await api.del(`/api/users/${id}`);
@@ -97,10 +151,58 @@ export default function UsersPage() {
     }
   }
 
+  // 班级下拉：只列真实存在的班级，避免下拉里一堆空选项
+  const classOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const u of data) if (u.className) set.add(u.className);
+    return [...set].sort();
+  }, [data]);
+
+  // 名单一长就必须能查。只在前端过滤：一个部署的学生数最多几千，够了
+  const shown = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return data.filter((u) => {
+      if (classFilter !== '__all__' && (u.className ?? '') !== classFilter) return false;
+      if (!kw) return true;
+      return (
+        u.username.toLowerCase().includes(kw) ||
+        u.display_name.toLowerCase().includes(kw) ||
+        (u.studentNo ?? '').toLowerCase().includes(kw) ||
+        (u.className ?? '').toLowerCase().includes(kw)
+      );
+    });
+  }, [data, keyword, classFilter]);
+
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: '用户名', dataIndex: 'username' },
-    { title: '显示名', dataIndex: 'display_name' },
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      width: 150,
+      render: (v: string, r: UserRow) => (
+        <Space size={4}>
+          <span>{v}</span>
+          {r.provider !== 'local' && <Tag color="purple">SSO</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: '姓名',
+      dataIndex: 'display_name',
+      width: 110,
+    },
+    {
+      title: '学号',
+      dataIndex: 'studentNo',
+      width: 120,
+      render: (v: string | null | undefined) => v || <span className="liti-muted">-</span>,
+    },
+    {
+      title: '班级',
+      dataIndex: 'className',
+      width: 130,
+      render: (v: string | null | undefined) => (v ? <Tag color="cyan">{v}</Tag> : <span className="liti-muted">-</span>),
+    },
     {
       title: '角色',
       dataIndex: 'role',
@@ -110,19 +212,13 @@ export default function UsersPage() {
     {
       title: '状态',
       dataIndex: 'status',
-      width: 90,
+      width: 84,
       render: (s: string) => (s === 'active' ? <Tag color="green">正常</Tag> : <Tag color="default">停用</Tag>),
-    },
-    {
-      title: '来源',
-      dataIndex: 'provider',
-      width: 90,
-      render: (p: string) => (p === 'local' ? '本地' : 'SSO'),
     },
     {
       title: '分组',
       dataIndex: 'groups',
-      width: 190,
+      width: 170,
       render: (groups: string[] | undefined) =>
         groups?.length ? (
           <Space size={4} wrap>
@@ -137,21 +233,22 @@ export default function UsersPage() {
         ),
     },
     {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      width: 170,
-      render: (t: number) => new Date(t).toLocaleString(),
-    },
-    {
       title: '操作',
       key: 'op',
-      width: 200,
+      width: 176,
+      fixed: 'right' as const,
       render: (_: unknown, r: UserRow) => (
         <Space>
           <a
             onClick={() => {
               setEditTarget(r);
-              editForm.setFieldsValue({ displayName: r.display_name, role: r.role, status: r.status });
+              editForm.setFieldsValue({
+                displayName: r.display_name,
+                role: r.role,
+                status: r.status,
+                studentNo: r.studentNo ?? '',
+                className: r.className ?? '',
+              });
             }}
           >
             编辑
@@ -182,17 +279,28 @@ export default function UsersPage() {
             : '你在这里可以创建学生账号、改显示名、重置密码、停用或删除学生。教师与管理员的账号只有管理员能改。'
         }
         extra={
-          <Button
-            icon={<PlusOutlined />}
-            type="primary"
-            onClick={() => {
-              setCreateOpen(true);
-              createForm.resetFields();
-              createForm.setFieldsValue({ role: 'student' });
-            }}
-          >
-            {isAdmin ? '新建用户' : '新建学生'}
-          </Button>
+          <Space>
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => {
+                setImportResult(null);
+                setImportOpen(true);
+              }}
+            >
+              导入学生名单
+            </Button>
+            <Button
+              icon={<PlusOutlined />}
+              type="primary"
+              onClick={() => {
+                setCreateOpen(true);
+                createForm.resetFields();
+                createForm.setFieldsValue({ role: 'student' });
+              }}
+            >
+              {isAdmin ? '新建用户' : '新建学生'}
+            </Button>
+          </Space>
         }
       />
 
@@ -207,13 +315,32 @@ export default function UsersPage() {
       )}
 
       <Card styles={{ body: { padding: 0 } }}>
+        <div style={{ padding: '12px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Input.Search
+            allowClear
+            placeholder="搜用户名 / 姓名 / 学号 / 班级"
+            style={{ width: 280 }}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+          <Select
+            style={{ width: 180 }}
+            value={classFilter}
+            onChange={setClassFilter}
+            options={[{ value: '__all__', label: '全部班级' }, ...classOptions.map((c) => ({ value: c, label: c }))]}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            共 {shown.length} 人{classFilter !== '__all__' ? `（${classFilter}）` : ''}
+          </Typography.Text>
+        </div>
         <Table
           rowKey="id"
           columns={columns}
-          dataSource={data}
+          dataSource={shown}
           loading={loading}
-          pagination={false}
-          locale={{ emptyText: '还没有账号，点右上角「新建用户」创建第一个' }}
+          pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+          scroll={{ x: 1090 }}
+          locale={{ emptyText: keyword || classFilter !== '__all__' ? '没有匹配的账号' : '还没有账号，点右上角「新建用户」创建第一个' }}
         />
       </Card>
 
@@ -230,6 +357,17 @@ export default function UsersPage() {
           </Form.Item>
           <Form.Item name="displayName" label="显示名" rules={[{ required: true, message: '请输入显示名' }]} tooltip="成绩单和答卷列表里显示的名字">
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="studentNo"
+            label="学号"
+            tooltip="选填，全校唯一；成绩册按学号排序才对得上教务的名单"
+            rules={[{ pattern: /^[a-zA-Z0-9_-]*$/, message: '只能包含字母、数字、下划线和连字符' }]}
+          >
+            <Input placeholder="选填，如 20260101" />
+          </Form.Item>
+          <Form.Item name="className" label="班级" tooltip="选填，如「高一(3)班」；按班导出成绩需要它">
+            <Input placeholder="选填，如 高一(3)班" />
           </Form.Item>
           <Form.Item
             name="password"
@@ -270,6 +408,17 @@ export default function UsersPage() {
           <Form.Item name="displayName" label="显示名" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+          <Form.Item
+            name="studentNo"
+            label="学号"
+            tooltip="全校唯一；清空即取消学号"
+            rules={[{ pattern: /^[a-zA-Z0-9_-]*$/, message: '只能包含字母、数字、下划线和连字符' }]}
+          >
+            <Input placeholder="选填" />
+          </Form.Item>
+          <Form.Item name="className" label="班级" tooltip="清空即取消班级">
+            <Input placeholder="选填，如 高一(3)班" />
+          </Form.Item>
           <Form.Item name="role" label="角色" rules={[{ required: true }]} hidden={!isAdmin}>
             <Select
               options={[
@@ -300,6 +449,96 @@ export default function UsersPage() {
             <Input.Password />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 导入学生名单 */}
+      <Modal
+        title="导入学生名单"
+        open={importOpen}
+        width={720}
+        onCancel={() => setImportOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setImportOpen(false)}>关闭</Button>
+            {importResult?.dryRun && importResult.created > 0 && (
+              <Button type="primary" loading={importing} onClick={() => pendingFile && runImport(pendingFile, false)}>
+                确认导入 {importResult.created} 人
+              </Button>
+            )}
+          </Space>
+        }
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 14 }}
+          message="先下载模板填好再上传"
+          description={
+            <span>
+              列顺序：用户名 / 姓名 / 学号 / 班级 / 初始密码 / 分组。学号选填但全校唯一；
+              初始密码留空的学生统一用默认密码。{' '}
+              <a href="/api/users/template">下载模板</a>
+            </span>
+          }
+        />
+        <Upload
+          showUploadList={false}
+          accept=".xlsx"
+          beforeUpload={(file) => {
+            setPendingFile(file);
+            runImport(file, true);
+            return false;
+          }}
+        >
+          <Button icon={<DownloadOutlined />} loading={importing}>
+            选择 xlsx 文件（只预检，不写入）
+          </Button>
+        </Upload>
+
+        {importResult && (
+          <div style={{ marginTop: 16 }}>
+            <Space size={6} wrap style={{ marginBottom: 10 }}>
+              <Tag color="blue">共 {importResult.total} 行</Tag>
+              <Tag color="green">{importResult.dryRun ? '可导入' : '已导入'} {importResult.created}</Tag>
+              <Tag color="orange">跳过 {importResult.skipped}</Tag>
+              <Tag color="red">有问题 {importResult.failed}</Tag>
+            </Space>
+            {!importResult.dryRun && importResult.created > 0 && (
+              <Alert
+                type="success"
+                showIcon
+                style={{ marginBottom: 10 }}
+                message={`初始密码（未填密码的学生都用它）：${importResult.defaultPassword}`}
+                description="请把这份名单发下去，并提醒学生首次登录后到「个人设置」改密码。"
+              />
+            )}
+            {importResult.errors.length > 0 && (
+              <Table
+                size="small"
+                rowKey={(r) => `e${r.row}`}
+                pagination={false}
+                style={{ marginBottom: 10 }}
+                dataSource={importResult.errors.slice(0, 20)}
+                columns={[
+                  { title: '行号', dataIndex: 'row', width: 70 },
+                  { title: '问题（这行不会导入）', dataIndex: 'message' },
+                ]}
+              />
+            )}
+            {importResult.warnings.length > 0 && (
+              <Table
+                size="small"
+                rowKey={(r) => `w${r.row}${r.message}`}
+                pagination={false}
+                dataSource={importResult.warnings.slice(0, 20)}
+                columns={[
+                  { title: '行号', dataIndex: 'row', width: 70 },
+                  { title: '提示（这行被跳过）', dataIndex: 'message' },
+                ]}
+              />
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

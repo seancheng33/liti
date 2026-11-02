@@ -12,6 +12,10 @@ export interface UserRow {
   external_id: string | null;
   status: 'active' | 'disabled';
   prefs: string | null;
+  /** 学号，同一部署内唯一；教师/管理员为 null（插入时可省略） */
+  student_no: ColumnType<string | null, string | null | undefined, string | null>;
+  /** 班级名，自由文本；按班导出成绩与汇总靠它（插入时可省略） */
+  class_name: ColumnType<string | null, string | null | undefined, string | null>;
   created_at: number;
   updated_at: number;
 }
@@ -107,6 +111,8 @@ export interface PaperRow {
   results_published: ColumnType<number, number | undefined, number>;
   /** 学生能否看到正确答案与解析；0 = 只出分不出答案 */
   analysis_published: ColumnType<number, number | undefined, number>;
+  /** 每份试卷允许作答的次数；练习卷（practice=1）不看这个值 */
+  max_attempts: ColumnType<number, number | undefined, number>;
   created_by: number | null;
   created_at: number;
   updated_at: number;

@@ -82,8 +82,10 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
 
   if (paper.practice !== 1) {
     const used = await usedAttempts(db, paperId, userId);
-    if (used >= MAX_ATTEMPTS_PER_PAPER) {
-      throw new HttpError(400, `这份试卷最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已用完 ${used} 次`);
+    // 上限按卷配置：考试卷通常是 1（一场考试只给一次），练习卷不看这个值
+    const limit = paper.max_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+    if (used >= limit) {
+      throw new HttpError(400, `这份试卷最多可作答 ${limit} 次，你已用完 ${used} 次`);
     }
   }
 

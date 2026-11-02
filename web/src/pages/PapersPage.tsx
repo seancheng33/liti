@@ -74,6 +74,9 @@ export default function PapersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [exportTarget, setExportTarget] = useState<Paper | null>(null);
+  const [exportClass, setExportClass] = useState<string>('');
+  const [classes, setClasses] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [settings, setSettings] = useState<SiteSettings | null>(null);
@@ -156,6 +159,7 @@ export default function PapersPage() {
       durationMin: Math.round((settings?.defaultDurationSec ?? 3600) / 60),
       // 默认 10 分/题：10 题正好 100 分，学校习惯的百分制；题量变了总分跟着变
       perQuestionScore: 10,
+      maxAttempts: MAX_ATTEMPTS_PER_PAPER,
       passScore: settings?.defaultPassScore ?? 60,
       publication: 'after_submit',
       shuffleOptions: true,
@@ -220,6 +224,7 @@ export default function PapersPage() {
       startAt: parseLocal(values.startAt),
       endAt: parseLocal(values.endAt),
       allowStudentPause: values.allowStudentPause !== false,
+      maxAttempts: values.maxAttempts ?? MAX_ATTEMPTS_PER_PAPER,
       ...(randomRules ? { randomRules } : { questionIds }),
     };
   }
@@ -404,6 +409,14 @@ export default function PapersPage() {
       case 'export':
         window.location.href = `/api/attempts/export?paperId=${r.id}`;
         break;
+      case 'exportClass':
+        setExportClass('');
+        setExportTarget(r);
+        api
+          .get<string[]>('/api/users/classes')
+          .then(setClasses)
+          .catch(() => setClasses([]));
+        break;
       case 'archive':
         confirm('归档这份试卷？', '学生看不到它了，历史答卷与成绩全部保留', '归档', () => archive(r.id));
         break;
@@ -506,11 +519,21 @@ export default function PapersPage() {
             key: 'attempts',
             width: 120,
             render: (_: unknown, r: Paper) => {
-              const left = r.remaining_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+              const limit = r.max_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+              // 练习卷后端给 null，表示不限次数
+              const left = r.remaining_attempts === null ? null : (r.remaining_attempts ?? limit);
               return (
-                <Tooltip title={`这份试卷最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，每次交卷后重新开始`}>
-                  <Typography.Text type={left === 0 ? 'danger' : left <= 1 ? 'warning' : 'secondary'}>
-                    {left > 0 ? `还可答 ${left} 次` : '次数已用完'}
+                <Tooltip
+                  title={
+                    left === null
+                      ? '练习卷不限作答次数'
+                      : `这份试卷最多可作答 ${limit} 次，每次交卷后重新开始`
+                  }
+                >
+                  <Typography.Text
+                    type={left === null ? 'secondary' : left === 0 ? 'danger' : left <= 1 ? 'warning' : 'secondary'}
+                  >
+                    {left === null ? '不限次数' : left > 0 ? `还可答 ${left} 次` : '次数已用完'}
                   </Typography.Text>
                 </Tooltip>
               );
@@ -530,7 +553,8 @@ export default function PapersPage() {
       width: 158,
       fixed: 'right' as const,
       render: (_: unknown, r: Paper) => {
-        const left = r.remaining_attempts ?? MAX_ATTEMPTS_PER_PAPER;
+        // null = 练习卷不限次数，不能当成 0 处理，否则按钮会被误禁
+        const left = r.remaining_attempts === null ? Infinity : (r.remaining_attempts ?? r.max_attempts ?? MAX_ATTEMPTS_PER_PAPER);
         const open = windowState(r) !== 'after';
         // 只在管理员视角才需要那一堆低频动作
         const more: MenuProps['items'] = isManager
@@ -547,6 +571,7 @@ export default function PapersPage() {
                 : []),
               { type: 'divider' as const },
               { key: 'export', label: '导出成绩（含缺考）' },
+              { key: 'exportClass', label: '按班级导出成绩' },
               ...(r.status !== 'archived' ? [{ key: 'archive', label: '归档' }] : []),
               { type: 'divider' as const },
               { key: 'delete', label: '删除', danger: true },
@@ -561,7 +586,7 @@ export default function PapersPage() {
               (left > 0 && open ? (
                 <a onClick={() => startExam(r)}>开始答题</a>
               ) : (
-                <Tooltip title={open ? `最多可作答 ${MAX_ATTEMPTS_PER_PAPER} 次，你已经用完了` : '考试已经结束'}>
+                <Tooltip title={open ? `最多可作答 ${r.max_attempts ?? MAX_ATTEMPTS_PER_PAPER} 次，你已经用完了` : '考试已经结束'}>
                   <span style={{ color: '#bbb', cursor: 'not-allowed' }}>{open ? '次数已用完' : '已结束'}</span>
                 </Tooltip>
               ))}
@@ -590,7 +615,7 @@ export default function PapersPage() {
     <div className="liti-page">
       <PageHeader
         title="试卷"
-        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建卷时可以设开考与结束时间（到点自动收卷）、每题分值、学生能不能自己暂停。发布时可选让所有学生看到还是只给指定学生看。每份试卷最多作答 3 次，练习卷不受限。"
+        description="随机抽题可以指定分类，也可以直接从题库里手选题目组卷。建卷时可以设开考与结束时间（到点自动收卷）、每题分值、作答次数、学生能不能自己暂停。发布时可选让所有学生看到还是只给指定学生看；成绩可以考完再统一放。"
         extra={
           <>
             {showPractice && (
@@ -624,6 +649,32 @@ export default function PapersPage() {
           pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
         />
       </Card>
+
+      {/* ---------- 按班级导出成绩 ---------- */}
+      <Modal
+        title={`按班级导出：${exportTarget?.title ?? ''}`}
+        open={!!exportTarget}
+        onCancel={() => setExportTarget(null)}
+        onOk={() => {
+          const cls = exportClass ? `&className=${encodeURIComponent(exportClass)}` : '';
+          window.location.href = `/api/attempts/export?paperId=${exportTarget!.id}${cls}`;
+          setExportTarget(null);
+        }}
+        okText="导出"
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+          只导出所选班级的学生，缺考的人仍然占一行写「未参加」。不选班级则导出全部应考的人。
+        </Typography.Paragraph>
+        <Select
+          style={{ width: '100%' }}
+          allowClear
+          placeholder="选择班级（不选 = 全部）"
+          value={exportClass || undefined}
+          onChange={(v) => setExportClass(v ?? '')}
+          options={classes.map((c) => ({ value: c, label: c }))}
+          notFoundContent="还没有学生填班级，可以到「用户管理」里补，或用名单导入一次性写进去"
+        />
+      </Modal>
 
       {/* ---------- 新建试卷 ---------- */}
       <Modal
@@ -707,7 +758,17 @@ export default function PapersPage() {
               >
                 <Switch checkedChildren="允许" unCheckedChildren="禁止" />
               </Form.Item>
+              <Form.Item
+                name="maxAttempts"
+                label="可作答次数"
+                tooltip="一场正式考试请设 1：允许考两次就等于取最高分。练习卷（练习中心生成）不受这个限制"
+              >
+                <InputNumber min={1} max={99} style={{ width: 130 }} addonAfter="次" />
+              </Form.Item>
             </Space>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              提示：正式统考建议「可作答次数 = 1、学生可自行暂停 = 关、成绩与解析 = 考完统一公布」。
+            </Typography.Text>
           </Card>
 
           <Form.Item name="mode" label="组卷方式" tooltip="随机抽题每次抽到的题不固定；手选可以精确控制题目">
