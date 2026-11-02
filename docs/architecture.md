@@ -94,9 +94,9 @@
 | `paper_audience_group` | id, paper_id, group_id, created_at —— 可见白名单（挂整个分组） |
 | `student_group` | id, name(唯一), remark, created_by, created_at, updated_at |
 | `student_group_member` | id, group_id, user_id, created_at |
-| `attempt` | id, paper_id, user_id, started_at, deadline_at, submitted_at, status, score, correct_count, submit_reason, **paused_at**, **paused_total_ms** |
+| `attempt` | id, paper_id, user_id, started_at, deadline_at, submitted_at, status, score, correct_count, submit_reason, **paused_at**, **paused_total_ms**, **last_seen_at** |
 | `attempt_item` | id, attempt_id, question_id, order_no, option_order(JSON), selected(JSON), is_correct, score, **flagged**, answered_at |
-| `attempt_violation` | id, attempt_id, type, occurred_at, meta |
+| `attempt_violation` | id, attempt_id, type, occurred_at, meta, **revoked_at**, **revoked_by**, **revoke_note** |
 | `wrong_question` | id, user_id, question_id, wrong_count, first_wrong_at, last_wrong_at, last_attempt_id, resolved_at, created_at, updated_at —— **每人一份，(user_id, question_id) 唯一** |
 | `import_batch` | id, filename, total, success, failed, errors(JSON), created_by, created_at |
 
@@ -104,6 +104,7 @@
 > v0.5 新增：`student_group` / `student_group_member` / `wrong_question` / `paper_audience_group`、`paper.practice_source`（迁移 `0009_practice_wrong_group`）。
 > v0.7 新增：`paper.start_at` / `end_at` / `allow_student_pause` / `per_question_score` / `results_published` / `analysis_published`（迁移 `0010_exam_window`）；同期加索引 `idx_attempt_status_deadline`、`idx_attempt_paper`，给 30s 一次的自动收卷扫描用。
 > v0.8 新增：`paper.max_attempts`（默认 3）、`user.student_no`（**varchar(32)**，全校唯一）、`user.class_name`（**varchar(64)**）+ 索引 `idx_user_student_no` / `idx_user_class_name`（迁移 `0011_exam_scale`）。
+> v0.11 新增：`attempt.last_seen_at`（**bigint**，心跳时间）、`attempt_violation.revoked_at`（**bigint**）/ `revoked_by` / `revoke_note` + 索引 `idx_violation_attempt`（迁移 `0012_proctor`、`0013_fix_proctor_timestamps`）。
 
 **v0.8 迁移的两个坑**（`0011_exam_scale`）
 
@@ -112,7 +113,7 @@
 
 **可移植性约定（SQLite / MySQL 双库关键）**
 
-- 时间统一存 **epoch 毫秒整数**，不用数据库原生日期类型，避免方言差异。
+- 时间统一存 **epoch 毫秒整数**，列类型一律 **`bigint`**，不用数据库原生日期类型，避免方言差异。**用 `integer` 会在 MySQL 上炸**（INT 是 32 位有符号，装不下 13 位毫秒，报 `Out of range value`），而 SQLite 的 INTEGER 本来就是 64 位，所以本地全绿、只在 MySQL 上出问题 —— 见 6.12.5 的真实事故。
 - JSON 统一存 **TEXT**（MySQL 侧不用 `JSON` 类型），跨库行为一致。
 - 迁移用 Kysely schema builder 按方言生成 DDL；禁用 `INSERT OR REPLACE`、`ON CONFLICT` 等方言语法。
 
@@ -424,6 +425,63 @@ v0.7 把「一场考试的纪律」管住了，但**一个年级 400 人怎么�
 
 ---
 
+### 6.12 实时监考与违规撤销（v0.11）
+
+成绩册回答「考完之后」，逐题分析回答「题出得好不好」，监考回答的是**此刻考场里发生了什么**：谁在答、谁掉线、谁被记了违规。
+
+#### 6.12.1 在线判定用轮询，不用 WebSocket
+
+学生答题页每 20 秒 `POST /api/attempts/:id/heartbeat`，服务端只做两件事：刷新 `attempt.last_seen_at`，把当前状态回给前端。
+
+为什么不挂 WebSocket：考场的网络常常是「能发 HTTP、长连接被掐」的代理环境，长连接一断就是整片显示掉线，而且断了之后要重连、要处理重连期间的补发。20 秒一次的 HTTP 心跳在断网恢复后自己就接上了，代价只有一个 `bigint` 字段。
+
+判定阈值 `OFFLINE_AFTER_MS = 90_000`（容得下连丢 4 次心跳）。三种取值要分清：
+
+| 值 | 含义 |
+|---|---|
+| `true` | 90 秒内有过心跳 |
+| `false` | 超过 90 秒没心跳 —— 掉线 |
+| `null` | **判不了**：还没开考、已交卷、正在暂停，或者这条答卷从没上报过心跳（升级前打开的页面） |
+
+`null` 和 `false` 必须分开：前者是「不知道」，后者是「确定失联」。把 `null` 当掉线会让刚开考的考场一片飘红。
+
+#### 6.12.2 暂停中不判在线
+
+学生主动点「暂停」时，`online` 直接给 `null`，状态显示「已暂停」。人可能就坐在那儿，只是不想让计时跑 —— 这时标他掉线毫无意义。
+
+#### 6.12.3 心跳顺带解决一个老问题
+
+原来学生被强制收卷（违规满 3 次 / 教师统一收卷 / 到点超时）之后，页面毫无察觉，还在那儿答题，直到他点「交卷」才发现卷子早收了。
+
+现在心跳会回 `status`，前端一发现不是 `in_progress` 就自己跳结果页。心跳也顺带做惰性超时判分 —— 学生的页面上唯一保证在跑的周期任务就是它，比等 sweeper 的 30 秒窗口更及时。
+
+#### 6.12.4 违规可撤销
+
+`attempt_violation` 原来只进不出，一条误报（按 F5、输入法候选窗、系统弹窗抢焦点）就永久占掉三次额度里的一个。
+
+现在加了 `revoked_at / revoked_by / revoke_note` 三个字段，做**软撤销**：
+
+- 行保留，只是标记成已撤销 —— 事后翻记录能看到「这里曾经记过一次，被谁在什么时候撤了，理由是什么」。
+- `countActiveViolations()` 只数 `revoked_at IS NULL` 的，所以**撤销一条，学生就重新获得一次额度**。
+- **撤销不会把已经强制交卷的答卷改回答题状态**。这个边界是故意的：收卷是既成事实，分数该不该补是教务的判断，不是一次点击能做的。页面上专门写了这条提示。
+- 撤销错了可以 `restore` 加回来（把三个字段清空）。重复撤销 / 重复恢复都返回 400，不静默成功 —— 老师点了两次应该看到「已经由 XXX 撤销过」。
+
+#### 6.12.5 MySQL 的 INTEGER 装不下毫秒时间戳（真实事故）
+
+0012 最初把 `last_seen_at` 和 `revoked_at` 写成了 `integer`。SQLite 上一切正常（它的 INTEGER 本来就是 64 位），但 MySQL 的 INTEGER 是 **32 位有符号**，上限 2147483647，而 `Date.now()` 是 13 位（约 1.79e12）。
+
+结果：MySQL 上**开考直接 500**，报 `Out of range value for column 'last_seen_at'`。
+
+修法是 0013：MySQL 上 `ALTER TABLE ... MODIFY COLUMN ... BIGINT NULL`，SQLite 跳过（它不支持 MODIFY COLUMN，也没有这个问题）。0012 本身也改成了 `bigint`，全新库直接就是对的。
+
+**记死这条：项目里所有存毫秒时间戳的列必须是 `bigint`**，与 `started_at` / `created_at` / `expires_at` 保持一致。这个问题有个讨厌的特点：SQLite 全绿，只有在 MySQL 上才炸。
+
+#### 6.12.6 练习卷没有考场
+
+`GET /api/papers/:id/proctor` 对 `practice=1` 直接 400「练习卷没有考场，无法监考」。练习卷是学生自己抽题自己练，不存在「一场考试」，硬给一张监考表只会让人误以为有人在考。
+
+---
+
 ## 7. API 设计（草案）
 
 ```
@@ -470,6 +528,7 @@ PUT          /api/papers/:id/audience        # { audienceMode, audienceUserIds, 
 POST         /api/papers/random-preview      # 抽样题号预览（不落库）
 POST         /api/papers/draft-preview       # 新建时按表单入参预览整卷（不落库）
 GET          /api/papers/:id/preview         # 已存在试卷预览（草稿也可，需教师/管理员）
+GET          /api/papers/:id/proctor         # 实时监考：应考名单 + 每人状态（教师/管理员，练习卷 400）
 POST         /api/papers/:id/archive         # 归档：学生看不到，成绩与答卷全留
 POST         /api/papers/:id/publish-results # { results?, analysis? } 分开发布成绩 / 解析
 POST         /api/papers/:id/close           # 强制收卷：所有进行中的答卷立即判分
@@ -488,6 +547,10 @@ PATCH        /api/attempts/:id/flag          # 题目标记
 POST         /api/attempts/:id/pause         # 暂停：停表 + 服务端屏蔽题面
 POST         /api/attempts/:id/resume        # 继续：deadline 按暂停时长顺延
 POST         /api/attempts/:id/violations    # 违规上报（暂停中忽略）
+GET          /api/attempts/:id/violations    # 违规明细（含已撤销），教师/管理员
+POST         /api/attempts/:id/violations/:vid/revoke    # 撤销误报（软撤销，body 可带 note）
+POST         /api/attempts/:id/violations/:vid/restore   # 恢复一条被撤销的违规
+POST         /api/attempts/:id/heartbeat     # 学生端每 20s 一次；回 status/serverNow/violations
 POST         /api/attempts/:id/submit        # 交卷；body 可带 { answers: [{questionId, selectedOptionIds}] } 快照兜底
 GET          /api/attempts/:id               # 答卷详情与解析（未发布时分数/对错一律 null）
 GET          /api/attempts?mine=1            # 我的记录
@@ -612,6 +675,8 @@ GET  /api/meta
 |---|---|
 | `AnalysisPage`（新增，`/analysis/:paperId`） | 逐题分析页，admin/teacher 专属（学生进页面看到的是「你没有查看逐题分析的权限」，接口本身也是 403）。顶部按班级筛选 + 刷新 + 导出 + 返回；六张统计卡与一张纯 CSS 直方图；中间「交卷情况」「考场纪律」两张小卡；下面是逐题表格（题号/题干/正确率 P/区分度 D/作答未答/判断/提示），支持展开看选项分布、支持「只看需关注」与按判断类型筛选；底部一段 P/D 值口径说明。 |
 | `PapersPage` | 「更多」下拉在成绩导出那一组前面加了「逐题分析」，直接跳 `/analysis/:id`。注意菜单 key 用了 `examAnalysis` 而不是 `analysis` —— `analysis` 已经被「公布答案与解析」占用了，复用会让两个动作互相踩。 |
+| `ProctorPage`（新增，`/proctor/:paperId`） | 实时监考页，admin/teacher 专属（学生硬敲 URL 看到「你没有进入监考的权限」）。顶部自动刷新开关（10s 静默轮询，不切 loading 以免表格闪）+ 手动刷新 + 返回；六张统计卡（应考 / 在场·在线 / 掉线 / 已交卷 / 未开始 / 违规）；筛选条（Segmented 全部·在场·掉线·未开始·已结束 + 姓名/用户名/学号搜索 + 班级下拉）；表格列（学号/姓名/班级/状态/已答/剩余/违规/最后心跳/成绩/操作），操作列 `fixed: right`；违规明细弹窗里逐条「撤销 / 恢复」，顶部一个选填理由输入框。**成绩列未公布时显示「未公布」，绝不落到 0**。 |
+| `ExamPage` | 新增心跳 effect（20s 一次，首拍延后 3s 避开页面加载抢带宽）：拿回的 `serverNow` 用来校准倒计时偏移，`violations` 用来同步被撤销后的次数，`status` 不是 `in_progress` 就直接跳结果页 —— 原来学生被强制收卷后页面毫无察觉，还在那儿答题。 |
 
 ---
 
@@ -648,6 +713,7 @@ GET  /api/meta
 | M10 成建制能力（v0.8） | 作答次数按卷配置、学号与班级字段、学生名单批量导入、成绩册按班级导出 | 66 项验收脚本双库全绿 + 27 项界面验收 + 5 张截图复查 |
 | M11 逐题分析（v0.9） | P 值 / D 值 / 选项分布 / 分数段分布、逐题判断与教务提示、按班级分析、分析结果导出 xlsx | 67 项验收脚本双库全绿 + 25 项界面验收 + 7 张截图复查 |
 | M12 答案保存容错（v0.10） | 按题合并与串行保存、失败分级与指数退避、stuck 自愈、pagehide keepalive、交卷答案快照兜底 | 34 项验收脚本双库全绿（含断网模拟）+ 18 项界面验收 + 4 张截图复查 |
+| M13 实时监考（v0.11） | 学生端心跳与在线判定、监考视图（状态/已答/剩余/违规/最后心跳）、违规明细与软撤销/恢复、心跳驱动强制收卷跳转 | 73 项验收脚本双库全绿 + 28 项界面验收 + 8 张截图复查 |
 
 ---
 

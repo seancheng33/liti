@@ -192,6 +192,8 @@ export interface AttemptRow {
   paused_at: number | null;
   /** 累计暂停时长（毫秒），只用于展示 */
   paused_total_ms: number;
+  /** 最后一次学生端心跳（毫秒）。null = 从没上报过，监考视图显示「未知」而不是「掉线」 */
+  last_seen_at: ColumnType<number | null, number | null | undefined, number | null>;
   created_at: number;
 }
 
@@ -215,6 +217,12 @@ export interface AttemptViolationRow {
   type: string;
   occurred_at: number;
   meta: string | null;
+  /** 非空 = 该条已被教师撤销，不再计入违规次数（软撤销，记录保留） */
+  revoked_at: ColumnType<number | null, number | null | undefined, number | null>;
+  /** 撤销人 user.id */
+  revoked_by: ColumnType<number | null, number | null | undefined, number | null>;
+  /** 撤销理由 */
+  revoke_note: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export interface SettingRow {

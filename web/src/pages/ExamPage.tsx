@@ -35,6 +35,11 @@ import type { AttemptItem, AttemptReview } from '../types';
 /** 违规上报去抖窗口：一次切窗通常会连着触发 visibilitychange + blur，别记成两次 */
 const VIOLATION_DEBOUNCE_MS = 2000;
 
+/** 心跳间隔。服务端 90 秒没收到就算掉线，这个间隔容得下连丢 4 次 */
+const HEARTBEAT_MS = 20_000;
+/** 首拍延后：避开页面加载与第一次答案保存的带宽争抢 */
+const HEARTBEAT_FIRST_MS = 3_000;
+
 /** 保存状态指示：学生需要知道「我这题到底存上没有」，尤其是网差的时候 */
 function SaveIndicator({ state }: { state: SaveState }) {
   if (state.phase === 'idle') return null;
@@ -173,6 +178,53 @@ export default function ExamPage() {
       queueRef.current = null;
     };
   }, [attemptId]);
+
+  /**
+   * 心跳（v0.11）：服务端的监考视图靠这条时间戳判「学生还在不在考场」。
+   *
+   * 顺带承担两件事：
+   * 1. 被强制收卷（违规满额 / 教师统一收卷 / 超时）时，学生页面**自己**会发现并跳转，
+   *    不用等他再点一次选项才知道 —— 这是原来最容易出现「学生还在答，卷子已经收了」的地方。
+   * 2. 同步违规次数：教师撤销误报后，学生端的「违规 2/3」会退回「1/3」。
+   *
+   * 为什么用 20 秒 HTTP 轮询而不是 WebSocket：考场网络常是「能发 HTTP、长连接被掐」的
+   * 代理环境，长连接一断就整片显示掉线；轮询在断网恢复后自己就接上了。
+   */
+  useEffect(() => {
+    if (!review) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const beat = async () => {
+      if (submittedRef.current) return;
+      try {
+        const r = await api.post<{
+          status: 'in_progress' | 'submitted' | 'expired';
+          serverNow: number;
+          violations: number;
+        }>(`/api/attempts/${attemptId}/heartbeat`);
+        if (stopped) return;
+        // 心跳带回的服务端时间最准，直接校准倒计时偏移
+        clockOffsetRef.current = r.serverNow - Date.now();
+        setViolations(r.violations);
+        if (r.status !== 'in_progress') {
+          submittedRef.current = true;
+          navigate(`/review/${attemptId}`, { replace: true });
+          return;
+        }
+      } catch {
+        /* 断网或已交卷：下一拍再试，不打扰学生 */
+      }
+      if (!stopped) timer = setTimeout(beat, HEARTBEAT_MS);
+    };
+
+    // 首拍稍晚一点，别和页面加载、首个答案保存抢带宽
+    timer = setTimeout(beat, HEARTBEAT_FIRST_MS);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [attemptId, review, navigate]);
 
   const handleSubmit = useCallback(async () => {
     if (submittedRef.current) return;

@@ -14,6 +14,7 @@ import ExamPage from './pages/ExamPage';
 import ReviewPage from './pages/ReviewPage';
 import MyAttemptsPage from './pages/MyAttemptsPage';
 import AnalysisPage from './pages/AnalysisPage';
+import ProctorPage from './pages/ProctorPage';
 import StatsPage from './pages/StatsPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
@@ -53,6 +54,7 @@ export default function App() {
           >
             <Route path="/papers" element={<PapersPage />} />
             <Route path="/analysis/:paperId" element={<AnalysisPage />} />
+            <Route path="/proctor/:paperId" element={<ProctorPage />} />
             <Route path="/practice" element={<PracticePage />} />
             <Route path="/wrong" element={<WrongQuestionsPage />} />
             <Route path="/groups" element={<GroupsPage />} />

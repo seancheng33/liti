@@ -7,6 +7,7 @@ import { requireRole } from '../rbac.js';
 import { previewItemsInOrder, previewPaperById } from './preview.js';
 import { validatePaperInput } from './validate.js';
 import { closePaperAttempts } from '../attempt/service.js';
+import * as proctor from '../attempt/proctor.js';
 import * as service from './service.js';
 
 const ruleSchema = z.object({
@@ -135,6 +136,15 @@ export async function paperRoutes(app: FastifyInstance, opts: { db: Db }): Promi
       return { ...p, audience_user_ids: [], audience_group_ids: [], random_config: null, created_by: null };
     }
     return p;
+  });
+
+  // 实时监考：应考名单 + 每人此刻的状态（在线/掉线/已答/违规）。
+  // 前端 10s 轮询一次，接口本身无副作用，刷新多少次都不会动数据。
+  app.get('/:id/proctor', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    return proctor.loadProctorView(db, Number(id));
   });
 
   // 试卷预览（管理员/教师，草稿也能看）

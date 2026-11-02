@@ -6,6 +6,7 @@ import { parseImageList } from '../media.js';
 import { MAX_ATTEMPTS_PER_PAPER, paperVisibleTo, sampleQuestionIds, type SampleRule } from '../paper/service.js';
 import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
 import { recordCorrect, recordWrong, sampleWrongQuestionIds } from '../wrong/service.js';
+import { countActiveViolations } from './proctor.js';
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
@@ -110,6 +111,9 @@ export async function startAttempt(db: Db, paperId: number, userId: number): Pro
         correct_count: 0,
         paused_at: null,
         paused_total_ms: 0,
+        // 开考即算「刚见过」：监考页在第一次心跳到达前就能显示在线，
+        // 否则会出现短暂的「正在进行但从未上报心跳」
+        last_seen_at: now,
         created_at: now,
       })
       .executeTakeFirstOrThrow();
@@ -226,6 +230,7 @@ export async function startPractice(db: Db, userId: number, opts: PracticeOption
         correct_count: 0,
         paused_at: null,
         paused_total_ms: 0,
+        last_seen_at: now,
         created_at: now,
       })
       .executeTakeFirstOrThrow();
@@ -510,6 +515,12 @@ async function applyAnswerSnapshot(
   return applied;
 }
 
+/**
+ * 累计多少次违规自动强制交卷。
+ * 注意统计的是「未撤销」的条数 —— 教师撤销一条误报后，学生就重新拥有一次额度。
+ */
+export const VIOLATION_LIMIT = 3;
+
 export async function reportViolation(
   db: Db,
   attemptId: number,
@@ -523,31 +534,69 @@ export async function reportViolation(
 
   // 暂停中切窗口是正常的（学生可能就是想切出去），不记违规
   if (attempt.paused_at != null) {
-    const c = Number(
-      (await db
-        .selectFrom('attempt_violation')
-        .select((eb) => eb.fn.countAll().as('c'))
-        .where('attempt_id', '=', attemptId)
-        .executeTakeFirstOrThrow()).c,
-    );
-    return { count: c, autoSubmitted: false, ignored: true };
+    return { count: await countActiveViolations(db, attemptId), autoSubmitted: false, ignored: true };
   }
 
   await db.insertInto('attempt_violation').values({ attempt_id: attemptId, type, occurred_at: Date.now(), meta: null }).execute();
 
-  const count = Number(
-    (await db
-      .selectFrom('attempt_violation')
-      .select((eb) => eb.fn.countAll().as('c'))
-      .where('attempt_id', '=', attemptId)
-      .executeTakeFirstOrThrow()).c,
-  );
+  const count = await countActiveViolations(db, attemptId);
 
-  if (count >= 3) {
+  if (count >= VIOLATION_LIMIT) {
     await gradeAttempt(db, attemptId, 'violation', 'submitted');
     return { count, autoSubmitted: true };
   }
   return { count, autoSubmitted: false };
+}
+
+/**
+ * 学生端心跳（v0.11）。
+ *
+ * 只做两件事：刷新 `last_seen_at`，把当前状态回给前端。前端拿到 `status`
+ * 不是 `in_progress` 时就知道「我被强制交卷了 / 超时了」，不必等下一次操作才发现。
+ *
+ * 顺带承担惰性超时判分：心跳是学生页面唯一保证在跑的周期任务，
+ * 到点直接判分比等 sweeper 的 30 秒窗口更及时。
+ */
+export async function heartbeatAttempt(
+  db: Db,
+  attemptId: number,
+  userId: number,
+): Promise<{
+  status: 'in_progress' | 'submitted' | 'expired';
+  serverNow: number;
+  deadlineAt: number;
+  remainingMs: number;
+  paused: boolean;
+  pausedSec: number;
+  violations: number;
+  violationLimit: number;
+}> {
+  let attempt = await getAttempt(db, attemptId);
+  if (!attempt) throw new HttpError(404, '答卷不存在');
+  if (attempt.user_id !== userId) throw new HttpError(403, '无权操作此答卷');
+
+  const now = Date.now();
+  if (attempt.status === 'in_progress') {
+    // 暂停中 deadline 还没顺延，此刻 now > deadline 是正常现象，不能判超时
+    if (attempt.paused_at == null && now > attempt.deadline_at) {
+      await gradeAttempt(db, attemptId, 'timeout', 'expired');
+      attempt = (await getAttempt(db, attemptId))!;
+    } else {
+      await db.updateTable('attempt').set({ last_seen_at: now }).where('id', '=', attemptId).execute();
+    }
+  }
+
+  const paused = attempt.status === 'in_progress' && attempt.paused_at != null;
+  return {
+    status: attempt.status,
+    serverNow: now,
+    deadlineAt: attempt.deadline_at,
+    remainingMs: attempt.status === 'in_progress' ? Math.max(0, attempt.deadline_at - now) : 0,
+    paused,
+    pausedSec: paused ? Math.round((now - (attempt.paused_at as number)) / 1000) : 0,
+    violations: await countActiveViolations(db, attemptId),
+    violationLimit: VIOLATION_LIMIT,
+  };
 }
 
 export async function submitAttempt(

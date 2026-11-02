@@ -7,6 +7,7 @@ import { requireRole } from '../rbac.js';
 import { exportAttemptsXlsx } from '../excel/export.js';
 import { exportAnalysisXlsx } from '../excel/analysis.js';
 import { analyzePaper } from './analysis.js';
+import * as proctor from './proctor.js';
 import * as service from './service.js';
 
 export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Promise<void> {
@@ -124,6 +125,14 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     return { id };
   });
 
+  // 心跳：学生页面每 20s 一次，监考视图靠它判在线。返回值让学生端知道
+  // 「我是不是已经被强制交卷了 / 超时了」，不用等下个操作才发现。
+  app.post('/:id/heartbeat', async (request) => {
+    const user = authenticate(request);
+    const { id } = request.params as { id: string };
+    return service.heartbeatAttempt(db, Number(id), user.userId);
+  });
+
   app.patch('/:id/answers', async (request) => {
     const user = authenticate(request);
     const { id } = request.params as { id: string };
@@ -158,6 +167,30 @@ export async function attemptRoutes(app: FastifyInstance, opts: { db: Db }): Pro
     const { id } = request.params as { id: string };
     const body = z.object({ type: z.string().optional() }).parse(request.body ?? {});
     return service.reportViolation(db, Number(id), user.userId, body.type ?? 'switch');
+  });
+
+  // 违规明细（含已撤销的）：教师判断「这条是不是误报」时得看到全部记录
+  app.get('/:id/violations', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id } = request.params as { id: string };
+    return { items: await proctor.listViolations(db, Number(id)) };
+  });
+
+  // 撤销误报。软撤销：行保留、记谁在什么时候撤的，事后可查可恢复。
+  app.post('/:id/violations/:vid/revoke', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id, vid } = request.params as { id: string; vid: string };
+    const body = z.object({ note: z.string().max(200).optional() }).parse(request.body ?? {});
+    return proctor.revokeViolation(db, Number(id), Number(vid), user.userId, body.note);
+  });
+
+  app.post('/:id/violations/:vid/restore', async (request) => {
+    const user = authenticate(request);
+    requireRole(user, 'admin', 'teacher');
+    const { id, vid } = request.params as { id: string; vid: string };
+    return proctor.restoreViolation(db, Number(id), Number(vid));
   });
 
   app.post('/:id/submit', async (request) => {

@@ -10,6 +10,8 @@ import * as migration0008 from '../migrations/0008_exam_enhance.js';
 import * as migration0009 from '../migrations/0009_practice_wrong_group.js';
 import * as migration0010 from '../migrations/0010_exam_window.js';
 import * as migration0011 from '../migrations/0011_exam_scale.js';
+import * as migration0012 from '../migrations/0012_proctor.js';
+import * as migration0013 from '../migrations/0013_fix_proctor_timestamps.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
@@ -23,6 +25,8 @@ const migrations: Record<string, Migration> = {
   '0009_practice_wrong_group': migration0009,
   '0010_exam_window': migration0010,
   '0011_exam_scale': migration0011,
+  '0012_proctor': migration0012,
+  '0013_fix_proctor_timestamps': migration0013,
 };
 
 const provider: MigrationProvider = {

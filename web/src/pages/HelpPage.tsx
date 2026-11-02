@@ -3,6 +3,7 @@ import {
   ApartmentOutlined,
   BarChartOutlined,
   BookOutlined,
+  EyeOutlined,
   FileTextOutlined,
   FormOutlined,
   PlayCircleOutlined,
@@ -224,6 +225,7 @@ function HelpBody() {
                 { key: 'review', href: '#review', title: '交卷与解析' },
                 { key: 'stats', href: '#stats', title: '成绩与统计' },
                 { key: 'analysis', href: '#analysis', title: '逐题分析' },
+                { key: 'proctor', href: '#proctor', title: '实时监考' },
                 { key: 'faq', href: '#faq', title: '常见问题' },
               ]}
             />
@@ -588,6 +590,56 @@ function HelpBody() {
                 showIcon
                 message="统计口径"
                 description="只统计已交卷（含超时、违规、强制收卷）的答卷，每人取最近一次；进行中的答卷不算。实考人数不足 8 人时不给 D 值——样本太少算出来的数字只会误导人。练习卷每人题目不同，不做逐题分析。"
+              />
+            </Card>
+          )}
+
+          {isManager && (
+            <Card id="proctor" style={{ marginBottom: 16 }}>
+              <Title level={4} style={{ marginTop: 0 }}>
+                <EyeOutlined /> 实时监考
+              </Title>
+              <Paragraph>
+                考试进行到一半，最想知道的是「现在考场里什么情况」。试卷页「更多」里的
+                <Text strong>实时监考</Text>就干这个：应考名单上每个人此刻什么状态，一眼看完。
+              </Paragraph>
+              <Space direction="vertical" size={6} style={{ marginBottom: 12 }}>
+                <Text>
+                  · 状态分五种：<Text strong>未开始 / 答题中 / 已暂停 / 已交卷 / 已超时</Text>，外加一个
+                  <Text strong>掉线</Text>标记。
+                </Text>
+                <Text>
+                  · <Text strong>在线判定</Text>：学生答题页每 20 秒发一次心跳，服务端超过 90 秒没收到就标掉线。
+                </Text>
+                <Text>
+                  · <Text strong>掉线不等于作弊</Text>：绝大多数是网络断了、电脑休眠，或者学生把页面关了。
+                  网络恢复后下一拍心跳就会自己回到「在线」，不用你手动处理。
+                </Text>
+                <Text>
+                  · <Text strong>暂停中不判在线</Text>：学生自己点了暂停，显示「已暂停」，不计入掉线人数——
+                  他人可能就坐在那儿。
+                </Text>
+                <Text>
+                  · <Text strong>已答</Text>是每题选过选项的条数，白卷显示 0；<Text strong>剩余</Text>是这名学生自己的倒计时。
+                </Text>
+                <Text>
+                  · <Text strong>成绩</Text>列在成绩没公布时显示「未公布」，不会显示 0 分。
+                </Text>
+              </Space>
+              <Paragraph>
+                页面每 10 秒自动刷新一次，右上角的开关可以关掉。名单上方能按状态筛（在看
+                <Text strong>「掉线」</Text>就只列掉线的人），也能按班级筛、按姓名/学号搜。
+              </Paragraph>
+              <Paragraph>
+                点某人的<Text strong>违规明细</Text>能看到他每一次切屏的时间与类型。判断是误报
+                （比如按 F5 刷新、输入法候选框弹了一下、系统弹窗抢了焦点）就点<Text strong>撤销</Text>，
+                可以顺手填个理由，事后翻记录能看到是谁、什么时候、为什么撤的。
+              </Paragraph>
+              <Alert
+                type="warning"
+                showIcon
+                message="撤销不是删除，也不会改分数"
+                description="记录会留着，只是标成「已撤销」并且不再占用三次额度——撤销一条，这名学生就重新获得一次机会。但如果他已经因为违规被强制交卷了，撤销不会把答卷退回答题状态，那种情况要在成绩册里另行处理。撤错了可以点「恢复」加回来。"
               />
             </Card>
           )}

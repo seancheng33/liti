@@ -412,6 +412,9 @@ export default function PapersPage() {
       case 'examAnalysis':
         navigate(`/analysis/${r.id}`);
         break;
+      case 'proctor':
+        navigate(`/proctor/${r.id}`);
+        break;
       case 'exportClass':
         setExportClass('');
         setExportTarget(r);
@@ -573,6 +576,7 @@ export default function PapersPage() {
                   ]
                 : []),
               { type: 'divider' as const },
+              { key: 'proctor', label: '实时监考' },
               { key: 'examAnalysis', label: '逐题分析' },
               { key: 'export', label: '导出成绩（含缺考）' },
               { key: 'exportClass', label: '按班级导出成绩' },

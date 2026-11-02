@@ -417,3 +417,93 @@ export const VERDICT_LABEL: Record<QuestionVerdict, string> = {
   'low-discrimination': '区分度低',
   'check-answer': '疑答案有误',
 };
+
+/* ---------- 实时监考（v0.11） ---------- */
+
+export type ProctorStatus = 'not-started' | 'in-progress' | 'paused' | 'submitted' | 'expired';
+
+export interface ProctorEntry {
+  userId: number;
+  username: string;
+  displayName: string;
+  studentNo: string | null;
+  className: string | null;
+  attemptId: number | null;
+  status: ProctorStatus;
+  /** 仅进行中有意义：true 在线 / false 掉线 / null 没有心跳记录 */
+  online: boolean | null;
+  lastSeenSec: number | null;
+  answeredCount: number;
+  questionCount: number;
+  violations: number;
+  violationTotal: number;
+  remainingSec: number | null;
+  pausedSec: number;
+  startedAt: number | null;
+  submittedAt: number | null;
+  submitReason: string | null;
+  /** 未公布成绩时为 null，前端必须显示「未公布」 */
+  score: number | null;
+  totalScore: number | null;
+}
+
+export interface ProctorSummary {
+  rosterCount: number;
+  notStarted: number;
+  inProgress: number;
+  paused: number;
+  submitted: number;
+  expired: number;
+  online: number;
+  offline: number;
+  unknownSeen: number;
+  violationStudents: number;
+  violationTotal: number;
+}
+
+export interface ProctorView {
+  paper: {
+    id: number;
+    title: string;
+    questionCount: number;
+    totalScore: number;
+    passScore: number;
+    startAt: number | null;
+    endAt: number | null;
+    status: string;
+    resultsPublished: boolean;
+    audienceMode: string;
+  };
+  serverNow: number;
+  offlineAfterMs: number;
+  summary: ProctorSummary;
+  entries: ProctorEntry[];
+  warnings: string[];
+}
+
+export interface ViolationItem {
+  id: number;
+  attemptId: number;
+  type: string;
+  occurredAt: number;
+  revoked: boolean;
+  revokedAt: number | null;
+  revokedByName: string | null;
+  revokeNote: string | null;
+}
+
+export const PROCTOR_STATUS_LABEL: Record<ProctorStatus, string> = {
+  'not-started': '未开始',
+  'in-progress': '答题中',
+  paused: '已暂停',
+  submitted: '已交卷',
+  expired: '已超时',
+};
+
+/** 违规类型的中文名；未知类型直接显示原文，别吞掉 */
+export const VIOLATION_TYPE_LABEL: Record<string, string> = {
+  switch: '切屏 / 切窗口',
+  visibility: '切到其他标签页',
+  blur: '窗口失焦',
+  pagehide: '离开页面',
+};
