@@ -6,6 +6,7 @@
 
 > **数据存在 SQLite 里**，单个文件落在 Docker 命名卷，不用另装数据库。
 > 从空机器到域名可访问的完整步骤见 **[DEPLOY.md](DEPLOY.md)**（约 20 分钟，含 HTTPS、排错、安全红线）。
+> 部署完打不开、本机能访问换 IP 就不通？看 **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**。
 > 本文只讲「跑起来」和「日常怎么用」。
 
 ## 需要什么
@@ -82,7 +83,7 @@ docker restart liti-demo
 ## 常见问题
 
 **打开是白屏 / 502**
-容器还在灌数据。首次启动要跑迁移 + 建 25 份答卷，大约 20 秒。`docker compose logs -f` 看到 `listening` 就好了。
+容器还在灌数据。首次启动要跑迁移 + 建 24 份答卷，大约 20 秒。`docker compose logs -f` 看到 `listening` 就好了。
 
 **登录页没有「一键体验」按钮**
 说明 `DEMO_MODE` 没生效。`docker compose exec liti-demo env | grep DEMO_MODE` 看一眼，应该是 `1`。

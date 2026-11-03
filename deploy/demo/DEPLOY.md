@@ -416,6 +416,8 @@ docker run --rm -v demo_demo-data:/data -v $(pwd):/backup alpine \
 
 ## 11. 排错
 
+外部访问不通、`TRUST_PROXY` 配错这类要一步步定位的，单独写在了 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。下面是能一眼看出原因的：
+
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `up` 直接报 `SESSION_SECRET` 相关错误 | `.env` 没填或太短 | `openssl rand -hex 32` 生成一个填上 |
