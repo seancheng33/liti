@@ -14,7 +14,7 @@
 | [release-checklist.md](release-checklist.md) | 发版十步，含回滚 | 每次发版 |
 | [user-guide.md](user-guide.md) | 老师怎么从录题走到出成绩、学生怎么答题、管理员管什么 | 培训、给新用户 |
 | [releases/](releases/) | 每个版本的对外说明 | 升级前看改了什么 |
-| [../deploy/demo/](../deploy/demo/) | 公网演示站的一键部署（compose、nginx、演示数据说明） | 想挂个 demo 给人试的时候 |
+| [../deploy/demo/DEPLOY.md](../deploy/demo/DEPLOY.md) | 演示站部署手册：空机器到域名 + HTTPS、演示数据、排错、安全红线 | 想挂个 demo 给人试的时候 |
 
 仓库根目录还有三份，不属于 docs 但同样常用：
 

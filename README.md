@@ -153,7 +153,9 @@ docker compose up -d
 
 镜像和正式版是同一个，靠 `DEMO_MODE=1` 打开三个东西：登录页的「一键体验」（免密进管理员/教师/学生）、全站顶部的演示横幅、每小时自动还原的演示数据。数据是一整套用了一学期的现场——40 道题、4 张试卷、24 个学生、19 份已出分的答卷，监考页里还有人正在作答。
 
-详细步骤、HTTPS 配置、内容替换见 [deploy/demo/README.md](deploy/demo/README.md)。
+完整部署手册（空机器到域名 + HTTPS，含排错与安全红线）见 [deploy/demo/DEPLOY.md](deploy/demo/DEPLOY.md)，简版见 [deploy/demo/README.md](deploy/demo/README.md)。
+
+数据存在 SQLite 里，单文件落在 Docker 命名卷，不用另装数据库。
 
 > 这个开关等于把登录门拆了，**只能开在演示实例上**。正式部署别抄那份 compose。
 
