@@ -1,0 +1,72 @@
+# 把演示站挂到已有站点的子目录下（https://你的域名/liti/）
+#
+# 适用场景：域名和 80/443 已经被别的服务占着（比如一个 Django 博客、一个公司官网），
+# 不想为演示站再申请一个域名，就在现有 server 块里加一段 location。
+#
+# 和 nginx.conf.example 的区别：
+#   nginx.conf.example  → 演示站独占一个域名，整站转发
+#   本文件              → 演示站挂在别人家目录下，只转发 /liti/ 这一段
+#
+# ⚠️ 两个前提，缺一个就是白屏：
+#   1) 容器必须用 BASE_PATH=/liti/ 重新构建过（docker compose up -d --build）
+#      没重新构建的话，index.html 里引用的还是 /assets/xxx.js，浏览器会去站根拿，
+#      拿到的是主站的 404，页面一片空白。
+#   2) 下面的 location 用 ^~ 修饰符。nginx 的匹配顺序是「最长前缀 → 正则」，
+#      不带 ^~ 时，主站里任何一条 location ~ \.js$ 这类正则都可能把
+#      /liti/assets/index-xxx.js 抢走，一样白屏。
+
+server {
+    listen 80;
+    server_name example.com;          # 改成你现有站点的域名
+
+    # ... 你原有的 location 配置都保留 ...
+
+    # 演示站的转发规则
+    location ^~ /liti/ {
+        # 注意末尾**没有**斜杠：/liti/api/health 会原样送到后端，
+        # 由服务端的 BASE_PATH 逻辑自己剥前缀。
+        # 写成 proxy_pass http://10.147.17.242:8080/;（带斜杠）nginx 会先剥掉 /liti，
+        # 那就变成「前端以为自己在 /liti 下、后端以为自己挂在根」，两边对不上。
+        proxy_pass http://10.147.17.242:8080;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        "upgrade";
+
+        # 题库要支持 xlsx 批量导入，默认 1m 不够
+        client_max_body_size 20m;
+        # 交卷、导出成绩偶尔会慢，给足时间，别让 nginx 先掐断
+        proxy_read_timeout 120s;
+    }
+
+    # 老链接兜底：有人直接访问 /liti（没有末尾斜杠）时补一个斜杠，
+    # 否则前端资源路径会相对错位
+    location = /liti {
+        return 301 /liti/;
+    }
+}
+
+# ── 上 HTTPS ────────────────────────────────────────────────
+# 不用另签证书，主站已经在用的那张证书覆盖整个域名，子目录天然就是 https。
+# 唯一要做的是让 80 的那段跳过去，通常主站早就配好了：
+#
+#   server {
+#       listen 80;
+#       server_name example.com;
+#       return 301 https://$host$request_uri;
+#   }
+#
+# 因为 /liti/ 跟主站在同一个域名下，443 的 server 块里同样加上面那段
+# location ^~ /liti/ {...} 即可（两段都要有，或者让 80 全部跳 443）。
+
+# ── 验证 ────────────────────────────────────────────────────
+#   nginx -t && nginx -s reload
+#   curl -I  https://example.com/liti/                          # 200，Content-Type: text/html
+#   curl -s  https://example.com/liti/api/health                # {"ok":true,...}
+#   curl -I  https://example.com/liti/assets/<构建产物里的文件名>.js   # 200，application/javascript
+#
+# 第三条是重点：它从 404 变 200，才说明前端资源和后端前缀真的对上了。

@@ -226,6 +226,7 @@ docker compose logs -f
 | `DEMO_PORT` | `8089` | 宿主端口。被占用就改这个，比如 `18089` |
 | `DEMO_BIND` | `127.0.0.1` | 监听地址。挂 nginx 用默认值；想直接 IP 访问改成 `0.0.0.0` |
 | `TRUST_PROXY` | `1` | 是否信任 `X-Forwarded-For`。挂 nginx 填 `1`，直接对外必须填 `0` |
+| `BASE_PATH` | `/liti/` | 部署子路径。挂别人家目录下填 `/liti/`，独占域名或直接开端口填 `/` |
 
 ### `TRUST_PROXY` 为什么不能乱开
 
@@ -319,6 +320,59 @@ curl -s https://你的域名/api/health
 ```
 
 浏览器打开能看到登录页和三个「一键体验」按钮，就成了。
+
+### 8.7 换个玩法：挂到已有站点的子目录下
+
+不想为演示站单独申请域名？可以挂在现有站点下，访问 `https://example.com/liti/`。
+
+这种部署方式和前面几步有三处不同，**顺序别搞反**：
+
+**第一，容器要按子路径重新构建。** 前端资源地址是构建时固化进 `index.html` 的，`.env` 里设了 `BASE_PATH` 之后必须重建：
+
+```ini
+# .env
+BASE_PATH=/liti/
+DEMO_BIND=127.0.0.1     # 或者跨机部署时的 0.0.0.0
+TRUST_PROXY=1
+```
+
+```bash
+docker compose up -d --build     # 只 up -d 不会重新打包前端
+```
+
+**第二，nginx 配置放在现有站点的 server 块里**，用 `^~` 修饰符、`proxy_pass` 末尾不带斜杠：
+
+```nginx
+location ^~ /liti/ {
+    proxy_pass http://127.0.0.1:8089;   # 跨机就换成 http://对方内网IP:8080
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 20m;
+    proxy_read_timeout 120s;
+}
+location = /liti { return 301 /liti/; }
+```
+
+完整注释版在 `nginx-subpath.conf.example`。
+
+**第三，不需要另外签证书。** 证书是按域名签的，整个域名都覆盖，子目录天然就是 HTTPS。
+
+两个细节容易翻车：
+
+- **`^~` 不能省。** nginx 的匹配顺序是「最长前缀匹配优先，但正则 location 会插队」。主站要是有 `location ~ \.js$` 这类规则，`/liti/assets/xxx.js` 会被它抢走，照样白屏。
+- **`proxy_pass` 末尾的斜杠不能加。** 加了 nginx 会先剥掉 `/liti`，而后端以为自己挂在 `/liti/` 下，两边对不上，接口全线 404。
+
+改完验证第三条最关键：
+
+```bash
+curl -I https://example.com/liti/            # 200
+curl -s https://example.com/liti/api/health  # {"ok":true,...}
+```
+
+打开页面看看 F12 的 Network，`index-*.js` 的状态码要是 200。是 404 就说明前端没重新构建，或者 `BASE_PATH` 和 nginx 对不上。
 
 ---
 

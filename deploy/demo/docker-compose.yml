@@ -12,6 +12,10 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        # 部署子路径。前端资源地址在构建时固化，运行时服务端按同名前缀剥回来，
+        # 两处必须一致；改完要 up -d --build，只 up -d 不会重新打包前端。
+        BASE_PATH: ${BASE_PATH:-/liti/}
     image: liti-demo:latest
     container_name: liti-demo
     restart: unless-stopped
@@ -27,6 +31,8 @@ services:
       # 这两行是演示站的全部特殊之处，镜像本身和正式版完全一样
       DEMO_MODE: "1"
       TRUST_PROXY: "${TRUST_PROXY:-1}"
+      # 与上面的 build.args 取同一个值，否则前端的资源前缀和后端的剥离规则对不上
+      BASE_PATH: ${BASE_PATH:-/liti/}
 
       SESSION_SECRET: ${SESSION_SECRET:?请先复制 .env.example 为 .env 并填一个 SESSION_SECRET，生成方法：openssl rand -hex 32}
       SQLITE_PATH: /app/data/app.db

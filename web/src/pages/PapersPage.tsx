@@ -33,7 +33,7 @@ import {
   MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, withBase } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 import QuestionPicker from '../components/QuestionPicker';
@@ -410,7 +410,7 @@ export default function PapersPage() {
         );
         break;
       case 'export':
-        window.location.href = `/api/attempts/export?paperId=${r.id}`;
+        window.location.href = withBase(`/api/attempts/export?paperId=${r.id}`);
         break;
       case 'examAnalysis':
         navigate(`/analysis/${r.id}`);
@@ -636,7 +636,7 @@ export default function PapersPage() {
             )}
             {isManager && (
               <Tooltip title="全站答卷流水；单场成绩册请用每行的「导出成绩」">
-                <Button icon={<DownloadOutlined />} href="/api/attempts/export">
+                <Button icon={<DownloadOutlined />} href={withBase('/api/attempts/export')}>
                   导出全部成绩
                 </Button>
               </Tooltip>
@@ -668,7 +668,7 @@ export default function PapersPage() {
         onCancel={() => setExportTarget(null)}
         onOk={() => {
           const cls = exportClass ? `&className=${encodeURIComponent(exportClass)}` : '';
-          window.location.href = `/api/attempts/export?paperId=${exportTarget!.id}${cls}`;
+          window.location.href = withBase(`/api/attempts/export?paperId=${exportTarget!.id}${cls}`);
           setExportTarget(null);
         }}
         okText="导出"

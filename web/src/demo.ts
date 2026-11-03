@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from './api';
+import { api, withBase } from './api';
 
 /**
  * 演示模式的公共逻辑。
@@ -51,5 +51,6 @@ export function useDemoInfo(): DemoInfo | null {
 /** 一键进入某个角色。成功后整页刷新 —— 会话变了，内存里的路由状态和缓存都不该留 */
 export async function demoLogin(role: string): Promise<void> {
   await api.post('/api/demo/login', { role });
-  window.location.href = '/';
+  // 换身份要整页刷新；子路径部署时这里必须带上前缀，否则跳到站点根跑到别人家去了
+  window.location.href = withBase('/');
 }

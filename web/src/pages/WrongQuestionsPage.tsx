@@ -20,7 +20,7 @@ import {
 } from 'antd';
 import { DeleteOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { api, withBase } from '../api';
 import PageHeader from '../components/PageHeader';
 import type { Category, WrongQuestion, WrongQuestionDetail } from '../types';
 
@@ -313,7 +313,7 @@ export default function WrongQuestionsPage() {
             {detail.images.length > 0 && (
               <Space wrap style={{ marginBottom: 12 }}>
                 {detail.images.map((src) => (
-                  <img key={src} src={src} alt="题干配图" style={{ maxWidth: 220, borderRadius: 6 }} />
+                  <img key={src} src={withBase(src)} alt="题干配图" style={{ maxWidth: 220, borderRadius: 6 }} />
                 ))}
               </Space>
             )}
@@ -334,7 +334,7 @@ export default function WrongQuestionsPage() {
                     {o.images.length > 0 && (
                       <Space wrap style={{ marginTop: 6 }}>
                         {o.images.map((src) => (
-                          <img key={src} src={src} alt="选项配图" style={{ maxWidth: 160, borderRadius: 6 }} />
+                          <img key={src} src={withBase(src)} alt="选项配图" style={{ maxWidth: 160, borderRadius: 6 }} />
                         ))}
                       </Space>
                     )}

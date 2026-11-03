@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Spin } from 'antd';
+import { BASE_PATH } from './api';
 import { AuthProvider, useAuth } from './auth';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
@@ -38,7 +39,9 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      {/* basename 让前端路由跟着部署前缀走：挂 /liti/ 时点「试卷」跳的是 /liti/papers，
+          不会跳出站点。根路径部署时 BASE_PATH 是空串，等价于不传。 */}
+      <BrowserRouter basename={BASE_PATH || '/'}>
         <Routes>
           {/* 公开页面：首页未登录也能看统计与已发布试卷预览 */}
           <Route path="/" element={<HomePage />} />

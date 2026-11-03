@@ -18,7 +18,7 @@ import {
   message,
 } from 'antd';
 import { DownloadOutlined, ExportOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
-import { api, uploadXlsx, ApiError } from '../api';
+import { api, uploadXlsx, withBase, ApiError } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 import ImageUpload from '../components/ImageUpload';
@@ -375,7 +375,7 @@ export default function QuestionsPage() {
                 </Upload>
               </Space.Compact>
               <Tooltip title="下载模板：题型列是下拉菜单，表头有填写说明">
-                <Button icon={<DownloadOutlined />} href="/api/questions/template">
+                <Button icon={<DownloadOutlined />} href={withBase('/api/questions/template')}>
                   模板
                 </Button>
               </Tooltip>

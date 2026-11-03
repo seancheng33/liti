@@ -199,6 +199,59 @@ docker compose logs -f liti-demo
 
 超过一分钟还这样，就不是等待问题了，看容器日志有没有报错。
 
+### 挂子目录时白屏，但接口明明是通的
+
+这个特别容易误判，因为 `curl` 看起来一切正常：
+
+```bash
+curl -I https://example.com/liti/            # 200 OK，返回的 HTML 也对
+curl -s https://example.com/liti/api/health  # {"ok":true,...}
+```
+
+浏览器打开却是一片空白。按 F12 看 Network，会看到 `index-xxx.js` 是 **404**。
+
+原因是 `index.html` 里资源地址写的是站根：
+
+```html
+<script src="/assets/index-xxx.js"></script>     <!-- 浏览器去 example.com/assets/ 找，那是主站 -->
+<script src="/liti/assets/index-xxx.js"></script> <!-- 子路径部署该长这样 -->
+```
+
+三种成因，按顺序查：
+
+**1. 容器没重新构建。** `BASE_PATH` 是构建时固化进 HTML 的，只改 `.env` 再 `up -d` 没用：
+
+```bash
+docker compose exec liti-demo env | grep BASE_PATH       # 运行时值
+docker compose exec liti-demo grep -o 'src="[^"]*"' /app/web/dist/index.html  # 构建进去的值
+```
+
+第二条输出 `src="/liti/assets/..."` 才算对。还是 `/assets/...` 就是没重建：
+
+```bash
+docker compose up -d --build
+```
+
+**2. nginx 的 `proxy_pass` 末尾多了斜杠。** 写成 `proxy_pass http://127.0.0.1:8089/;` 时 nginx 会先剥掉 `/liti`，后端收到的路径里没有前缀，静态资源和接口全 404。正确的写法是不带斜杠：
+
+```nginx
+location ^~ /liti/ { proxy_pass http://127.0.0.1:8089; }
+```
+
+**3. nginx 的 location 没加 `^~`。** 主站里若有 `location ~ \.js$` 这类正则，会抢在 `/liti/` 前面匹配，把资源请求截走。加上 `^~` 提升优先级：
+
+```nginx
+location ^~ /liti/ { ... }
+```
+
+判断方法很简单——直接在服务器上绕过 nginx 问后端要一次：
+
+```bash
+curl -s http://127.0.0.1:8089/liti/ | grep -o 'src="[^"]*"'
+```
+
+后端给的地址带 `/liti/`，而浏览器里拿到的不带，那问题在 nginx（第 2、3 条）；两边都不带，就是容器没重建（第 1 条）。
+
 ---
 
 ## 五、登录页没有「一键体验」按钮

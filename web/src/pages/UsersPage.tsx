@@ -18,7 +18,7 @@ import {
   theme as antdTheme,
 } from 'antd';
 import { DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
-import { api, uploadXlsx } from '../api';
+import { api, uploadXlsx, withBase } from '../api';
 import { useAuth } from '../auth';
 import PageHeader from '../components/PageHeader';
 
@@ -567,7 +567,7 @@ export default function UsersPage() {
             <span>
               列顺序：用户名 / 姓名 / 学号 / 班级 / 初始密码 / 分组。学号选填但全校唯一；
               初始密码留空的学生统一用默认密码。{' '}
-              <a href="/api/users/template">下载模板</a>
+              <a href={withBase('/api/users/template')}>下载模板</a>
             </span>
           }
         />

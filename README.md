@@ -155,6 +155,8 @@ docker compose up -d
 
 完整部署手册（空机器到域名 + HTTPS，含排错与安全红线）见 [deploy/demo/DEPLOY.md](deploy/demo/DEPLOY.md)，简版见 [deploy/demo/README.md](deploy/demo/README.md)。
 
+域名已经被别的站点占着？填 `BASE_PATH=/liti/` 就能挂在 `https://已有域名/liti/` 下，不用另外申请域名。nginx 配置见 [deploy/demo/nginx-subpath.conf.example](deploy/demo/nginx-subpath.conf.example)，步骤见 DEPLOY.md 第 8.7 节。
+
 数据存在 SQLite 里，单文件落在 Docker 命名卷，不用另装数据库。
 
 > 这个开关等于把登录门拆了，**只能开在演示实例上**。正式部署别抄那份 compose。

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Spin, Upload, message } from 'antd';
 import { CloseOutlined, PictureOutlined, PlusOutlined } from '@ant-design/icons';
-import { uploadImage } from '../api';
+import { uploadImage, withBase } from '../api';
 
 interface ImageUploadProps {
   value?: string[];
@@ -33,7 +33,7 @@ export default function ImageUpload({ value = [], onChange, max = 6, size = 'md'
     <div className="liti-image-grid">
       {value.map((url) => (
         <div className={thumbClass} key={url}>
-          <Image src={url} alt="配图" />
+          <Image src={withBase(url)} alt="配图" />
           <button type="button" className="liti-image-remove" onClick={() => onChange?.(value.filter((v) => v !== url))}>
             <CloseOutlined />
           </button>
@@ -69,7 +69,7 @@ export function ImageGallery({ images, size = 'md' }: { images?: string[]; size?
       <div className="liti-image-grid">
         {images.map((url) => (
           <div className={thumbClass} key={url}>
-            <Image src={url} alt="题目配图" />
+            <Image src={withBase(url)} alt="题目配图" />
           </div>
         ))}
       </div>

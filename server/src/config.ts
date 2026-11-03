@@ -36,6 +36,26 @@ const envSchema = z.object({
     .enum(['0', '1'])
     .default('0')
     .transform((v) => v === '1'),
+  /**
+   * 部署子路径。
+   *
+   * 挂到已有站点的子目录下（https://example.com/liti/）时填 '/liti/'；
+   * 独占域名或直接开端口时填 '/'。默认 '/liti/'，因为 demo 这个分支就是为了
+   * 挂在别人的子目录下演示而存在的。正式版（main）不受影响。
+   *
+   * **必须和前端构建时的 VITE_BASE_PATH 一致**。两处对不上不会报错，
+   * 只会表现为页面空白（资源请求打到站根去了），所以 Dockerfile 里
+   * 让 VITE_BASE_PATH 直接取这个变量的值，compose 只传一次。
+   */
+  BASE_PATH: z
+    .string()
+    .default('/liti/')
+    .transform((raw) => {
+      const v = raw.trim();
+      if (!v || v === '/') return '/';
+      const lead = v.startsWith('/') ? v : `/${v}`;
+      return lead.endsWith('/') ? lead : `${lead}/`;
+    }),
 });
 
 export type Config = z.infer<typeof envSchema>;

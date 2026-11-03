@@ -1,3 +1,23 @@
+/**
+ * 部署前缀，由 Vite 的 base 推导（构建时确定）。
+ *
+ * 根路径部署时是空串，挂子目录时是 '/liti' 这样的值。
+ * 所有以 '/' 开头的前端资源地址都必须过一遍 withBase —— 少了这一步，
+ * 子路径部署下请求会打到站根，被别的服务接走，页面就白了。
+ */
+export const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+/**
+ * 给站内绝对路径加上部署前缀。
+ * 外部链接（http://、//、data:）和已经带前缀的路径原样返回，重复调用也安全。
+ */
+export function withBase(path: string): string {
+  if (!BASE_PATH) return path;
+  if (/^(?:[a-z]+:)?\/\//i.test(path) || path.startsWith('data:')) return path;
+  if (path === BASE_PATH || path.startsWith(`${BASE_PATH}/`)) return path;
+  return `${BASE_PATH}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -11,7 +31,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(withBase(path), {
     method: opts.method ?? 'GET',
     credentials: 'include',
     headers: opts.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
@@ -42,7 +62,7 @@ export const api = {
 };
 
 export async function uploadXlsx(path: string, buffer: ArrayBuffer): Promise<unknown> {
-  const res = await fetch(path, {
+  const res = await fetch(withBase(path), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },

@@ -40,6 +40,13 @@ COPY server/ server/
 COPY web/ web/
 
 # 编译后端 + 构建前端（前端先跑一遍 tsc 类型检查，vite 本身不校验类型）
+#
+# BASE_PATH 是部署子路径，前端打包时必须固化进资源地址里（vite 的 base），
+# 运行时服务端读的是同名环境变量，负责把前缀剥掉。两边必须一致 ——
+# 所以这里让 VITE_BASE_PATH 直接从 BASE_PATH 取，compose 只传一次。
+ARG BASE_PATH=/liti/
+ENV VITE_BASE_PATH=$BASE_PATH
+
 RUN pnpm --filter @liti/server build \
     && pnpm --filter @liti/web typecheck \
     && pnpm --filter @liti/web build

@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { IncomingMessage } from 'node:http';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
@@ -31,8 +32,36 @@ export interface AppContext {
   config: Config;
 }
 
+/**
+ * 剥掉部署子路径前缀。
+ *
+ * 子路径部署时前端请求的是 `/liti/api/...`、`/liti/assets/...`，浏览器地址栏
+ * 里的前端路由是 `/liti/papers`。这里统一把 `/liti` 剥掉，后面所有注册的路由、
+ * 静态目录、SPA 回退都按根路径写就好 —— 一套逻辑同时支持两种部署方式。
+ *
+ * 必须在 Fastify 建实例时通过 rewriteUrl 传进去：onRequest 钩子里改 raw.url
+ * 已经太晚了，路由在钩子之前就匹配完了。
+ */
+function makeRewriteUrl(basePath: string | undefined): ((req: IncomingMessage) => string) | undefined {
+  // 兜底成根路径：BASE_PATH 没传（比如测试里手工构造的 config 对象）时
+  // 不剥任何前缀，行为和加这个功能之前完全一致，不会因为少一个字段就起不来。
+  const prefix = (basePath ?? '/').replace(/\/$/, '');
+  if (!prefix) return undefined;
+  return (req: IncomingMessage): string => {
+    const url = req.url ?? '/';
+    if (url === prefix) return '/';
+    if (!url.startsWith(`${prefix}/`)) return url;
+    const rest = url.slice(prefix.length);
+    return rest || '/';
+  };
+}
+
 export async function buildApp(db: Db, config: Config): Promise<AppContext> {
-  const app = Fastify({ logger: config.NODE_ENV !== 'test', trustProxy: config.TRUST_PROXY });
+  const app = Fastify({
+    logger: config.NODE_ENV !== 'test',
+    trustProxy: config.TRUST_PROXY,
+    rewriteUrl: makeRewriteUrl(config.BASE_PATH),
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
