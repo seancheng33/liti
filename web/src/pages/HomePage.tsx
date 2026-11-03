@@ -22,6 +22,8 @@ import AppLayout from '../components/AppLayout';
 import PublicShell from '../components/PublicShell';
 import LoginForm from '../components/LoginForm';
 import PaperPreviewModal from '../components/PaperPreviewModal';
+import DonateCard from '../components/DonateCard';
+import AdSlot from '../components/AdSlot';
 import { type PaperPreview, type PublicOverview, type PublicPaper } from '../types';
 
 /**
@@ -213,6 +215,13 @@ export default function HomePage() {
                 </Button>
               </Space>
             </Card>
+
+            <DonateCard />
+
+            {/* 侧栏竖版广告位 */}
+            <div style={{ marginTop: 16 }}>
+              <AdSlot slot="1129090126" style={{ minHeight: 250 }} />
+            </div>
           </div>
         </Col>
       </Row>
