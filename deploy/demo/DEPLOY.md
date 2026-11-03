@@ -274,9 +274,11 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # 覆盖，不要追加（$proxy_add_x_forwarded_for）：砺题取 XFF 最左值当访客 IP，
+        # 追加写法下客户端自己发一个头就能伪造来源，登录限流会按伪造 IP 分桶。
+        proxy_set_header X-Forwarded-For   $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
+        proxy_read_timeout 120s;
     }
 }
 EOF
@@ -348,7 +350,8 @@ location ^~ /liti/ {
     proxy_http_version 1.1;
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    # 同上：覆盖而非追加，否则来源 IP 可伪造
+    proxy_set_header X-Forwarded-For   $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     client_max_body_size 20m;
     proxy_read_timeout 120s;

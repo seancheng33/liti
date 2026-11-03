@@ -162,7 +162,18 @@ curl -s -H "X-Forwarded-For: 1.2.3.4" http://<地址>:8089/api/health
 
 反过来的坑也有：挂在 nginx 后面却填 `0`，那所有访客在日志和限流里都会显示成 `127.0.0.1`，一人触发限流全体被拦。
 
-一句话记：**前面真有 nginx 才填 1，没有就填 0**。
+还有第三种，最容易被漏掉：**nginx 在前面、`TRUST_PROXY=1` 也填对了，但 nginx 用的是「追加」写法**。
+
+```nginx
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;   # ❌ 追加
+proxy_set_header X-Forwarded-For $remote_addr;                 # ✅ 覆盖
+```
+
+`$proxy_add_x_forwarded_for` 的语义是「把真实 IP 接在客户端自带的头后面」。服务端取的是这个头的**最左值**，也就是客户端自己写的那一段。实测过：请求带着 `X-Forwarded-For: 1.2.3.4` 打进来，`request.ip` 拿到的就是 `1.2.3.4`，跟真实来源无关。所以配置看着全对，限流照样能被伪造 IP 刷掉。
+
+本机 nginx 是唯一入口，直接覆盖成真实来源才对。验证方法同上：经 nginx 访问时故意带个假头，完了看审计日志——记出 `1.2.3.4` 就是追加写法。
+
+一句话记：**前面真有 nginx 才填 1，没有就填 0；填了 1 还得保证 nginx 是覆盖，不是追加。**
 
 ---
 
