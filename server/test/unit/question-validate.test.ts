@@ -19,7 +19,7 @@ describe('validateQuestionDraft 题目校验', () => {
   });
 
   it('题干为空报错', () => {
-    expect(validateQuestionDraft(draft({ stem: '   ' }))).toContain('题干不能为空');
+    expect(validateQuestionDraft(draft({ stem: '   ' })).join()).toContain('题干不能为空');
   });
 
   it('单选两个答案报错', () => {
@@ -40,10 +40,6 @@ describe('validateQuestionDraft 题目校验', () => {
   it('选项数量越界报错', () => {
     const d = draft({ options: [{ content: 'A', isCorrect: true }] });
     expect(validateQuestionDraft(d).join()).toContain('2–6');
-  });
-
-  it('难度越界报错', () => {
-    expect(validateQuestionDraft(draft({ difficulty: 9 })).join()).toContain('难度');
   });
 
   it('空选项内容报错', () => {

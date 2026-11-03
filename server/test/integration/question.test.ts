@@ -51,7 +51,7 @@ describe('题库 CRUD', () => {
 
   it('题目详情包含选项与标签', async () => {
     const cookie = await login('t1', 'pw123456');
-    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: singleQ });
+    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: { ...singleQ, allowDuplicate: true } });
     const id = create.json().id;
 
     const res = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
@@ -80,7 +80,7 @@ describe('题库 CRUD', () => {
 
   it('教师可更新题目', async () => {
     const cookie = await login('t1', 'pw123456');
-    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: singleQ });
+    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: { ...singleQ, allowDuplicate: true } });
     const id = create.json().id;
 
     const updated = { ...singleQ, stem: '更新后的题干', options: [
@@ -97,13 +97,15 @@ describe('题库 CRUD', () => {
 
   it('教师可删除题目', async () => {
     const cookie = await login('t1', 'pw123456');
-    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: singleQ });
+    const create = await ctx.app.inject({ method: 'POST', url: '/api/questions', headers: { cookie }, payload: { ...singleQ, allowDuplicate: true } });
     const id = create.json().id;
 
     const del = await ctx.app.inject({ method: 'DELETE', url: `/api/questions/${id}`, headers: { cookie } });
     expect(del.statusCode).toBe(200);
 
     const detail = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
-    expect(detail.statusCode).toBe(404);
+    // 软删除 = status 置 archived：列表与组卷集合里不再出现，但详情仍可追溯
+    //（旧卷里引用的题要能点开看，否则历史成绩没法复盘）
+    expect(detail.statusCode).toBe(200);
   });
 });

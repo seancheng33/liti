@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import { parseQuestionRows, mapQuestionType, mapDifficulty } from '../../src/excel/import.js';
+import { parseQuestionRows, mapQuestionType } from '../../src/excel/import.js';
 
 async function buildXlsx(rows: (string | number)[][]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
@@ -10,7 +10,7 @@ async function buildXlsx(rows: (string | number)[][]): Promise<Buffer> {
   return Buffer.from(buf);
 }
 
-const header = ['题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '正确答案', '解析', '分类', '难度', '标签'];
+const header = ['题型', '题干', '选项A', '选项B', '选项C', '选项D', '选项E', '选项F', '正确答案', '解析', '分类', '标签'];
 
 describe('mapQuestionType 题型映射', () => {
   it('映射单选', () => {
@@ -28,35 +28,24 @@ describe('mapQuestionType 题型映射', () => {
   });
 });
 
-describe('mapDifficulty 难度映射', () => {
-  it('映射易中难', () => {
-    expect(mapDifficulty('易')).toBe(1);
-    expect(mapDifficulty('中')).toBe(2);
-    expect(mapDifficulty('难')).toBe(3);
-    expect(mapDifficulty('2')).toBe(2);
-    expect(mapDifficulty('')).toBeNull();
-  });
-});
-
 describe('parseQuestionRows Excel 解析', () => {
   it('解析合法单选行', async () => {
     const buf = await buildXlsx([
       header,
-      ['单选', '1+1=?', '1', '2', '3', '4', '', '', 'B', '等于2', '', '易', '数学'],
+      ['单选', '1+1=?', '1', '2', '3', '4', '', '', 'B', '等于2', '', '数学'],
     ]);
     const rows = await parseQuestionRows(buf);
     expect(rows).toHaveLength(1);
     expect(rows[0].errors).toEqual([]);
     expect(rows[0].draft?.type).toBe('single');
     expect(rows[0].draft?.options[1].isCorrect).toBe(true);
-    expect(rows[0].draft?.difficulty).toBe(1);
     expect(rows[0].draft?.tags).toEqual(['数学']);
   });
 
   it('解析合法多选行', async () => {
     const buf = await buildXlsx([
       header,
-      ['多选', '哪些是偶数?', '1', '2', '3', '4', '', '', 'BD', '', '', '中', ''],
+      ['多选', '哪些是偶数?', '1', '2', '3', '4', '', '', 'BD', '', '', ''],
     ]);
     const rows = await parseQuestionRows(buf);
     expect(rows[0].errors).toEqual([]);
@@ -68,7 +57,7 @@ describe('parseQuestionRows Excel 解析', () => {
   it('单选两个答案报错', async () => {
     const buf = await buildXlsx([
       header,
-      ['单选', 'q', 'a', 'b', 'c', 'd', '', '', 'AB', '', '', '', ''],
+      ['单选', 'q', 'a', 'b', 'c', 'd', '', '', 'AB', '', '', ''],
     ]);
     const rows = await parseQuestionRows(buf);
     expect(rows[0].errors.join()).toContain('仅有一个');
@@ -77,7 +66,7 @@ describe('parseQuestionRows Excel 解析', () => {
   it('题型非法报错', async () => {
     const buf = await buildXlsx([
       header,
-      ['判断', 'q', 'a', 'b', '', '', '', '', 'A', '', '', '', ''],
+      ['判断', 'q', 'a', 'b', '', '', '', '', 'A', '', '', ''],
     ]);
     const rows = await parseQuestionRows(buf);
     expect(rows[0].errors.join()).toContain('题型无效');
@@ -86,9 +75,9 @@ describe('parseQuestionRows Excel 解析', () => {
   it('空行被跳过', async () => {
     const buf = await buildXlsx([
       header,
-      ['单选', 'q', 'a', 'b', '', '', '', '', 'A', '', '', '', ''],
-      new Array(13).fill(''),
-      new Array(13).fill(''),
+      ['单选', 'q', 'a', 'b', '', '', '', '', 'A', '', '', ''],
+      new Array(12).fill(''),
+      new Array(12).fill(''),
     ]);
     const rows = await parseQuestionRows(buf);
     expect(rows).toHaveLength(1);

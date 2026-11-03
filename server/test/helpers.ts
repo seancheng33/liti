@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { Config } from '../src/config.js';
 import { createDb } from '../src/db/index.js';
 import { migrate } from '../src/db/migrate.js';
@@ -11,6 +13,7 @@ export function testConfig(): Config {
     PORT: 8080,
     DB_DRIVER: 'sqlite',
     SQLITE_PATH: ':memory:',
+    UPLOAD_DIR: join(tmpdir(), 'liti-test-uploads'),
     SESSION_SECRET: 'test-secret-1234567890123456',
     SESSION_TTL_MS: 7 * 24 * 60 * 60 * 1000,
     AUTH_PROVIDERS: 'local',

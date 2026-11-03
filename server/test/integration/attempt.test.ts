@@ -32,7 +32,7 @@ beforeAll(async () => {
     method: 'POST',
     url: '/api/papers',
     headers: { cookie: teacherCookie },
-    payload: { title: '测试卷', mode: 'fixed', durationSec: 3600, questionIds: [q1, q2, q3] },
+    payload: { title: '测试卷', mode: 'fixed', durationSec: 3600, questionIds: [q1, q2, q3], maxAttempts: 99 },
   });
   expect(create.statusCode).toBe(200);
   paperId = create.json().id;
@@ -57,6 +57,7 @@ async function correctIds(qid: number): Promise<number[]> {
 
 async function startAttempt(): Promise<number> {
   const res = await ctx.app.inject({ method: 'POST', url: '/api/attempts', headers: { cookie: studentCookie }, payload: { paperId } });
+  if (res.statusCode !== 200) throw new Error(`开考失败 ${res.statusCode}: ${res.body}`);
   return res.json().id;
 }
 
@@ -132,6 +133,7 @@ describe('答题流程', () => {
     await ctx.db.updateTable('attempt').set({ deadline_at: Date.now() - 1000 }).where('id', '=', id).execute();
 
     const review = await ctx.app.inject({ method: 'GET', url: `/api/attempts/${id}`, headers: { cookie: studentCookie } });
+    expect(review.statusCode).toBe(200);
     expect(review.json().status).toBe('expired');
     expect(review.json().submitReason).toBe('timeout');
   });

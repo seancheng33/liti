@@ -45,7 +45,6 @@ describe('统计报表', () => {
     const body = res.json();
     expect(body.questionCount).toBeGreaterThanOrEqual(3);
     expect(body.questionByType.single).toBeGreaterThanOrEqual(3);
-    expect(Array.isArray(body.questionByDifficulty)).toBe(true);
     expect(typeof body.correctRate).toBe('number');
   });
 
