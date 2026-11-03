@@ -102,7 +102,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.14 接口验收（20 项，SQLite 与 MySQL 双跑）
 
-脚本 `E:/workbuddy/网站优化/liti-features-v14.mjs`，目标地址读环境变量 `LITI_BASE`。
+脚本 `liti-features-v14.mjs`，目标地址读环境变量 `LITI_BASE`。
 
 | 组 | 覆盖 | 项数 |
 |---|---|---|
@@ -122,7 +122,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.14 界面验收（12 项）
 
-脚本 `E:/workbuddy/网站优化/liti-shot-v14.mjs`（无头 Edge + CDP），截图在 `shots-v14/`。
+脚本 `liti-shot-v14.mjs`（无头 Edge + CDP），截图在 `shots-v14/`。
 
 1. 管理员登录用户管理页
 2. 操作列有「生成重置码」
@@ -150,7 +150,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.13 接口验收（47 项，SQLite 与 MySQL 双跑）
 
-脚本 `E:/workbuddy/网站优化/liti-features-v13.mjs`，目标地址读环境变量 `LITI_BASE`。
+脚本 `liti-features-v13.mjs`，目标地址读环境变量 `LITI_BASE`。
 
 | 组 | 覆盖 | 项数 |
 |---|---|---|
@@ -171,7 +171,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.13 界面验收（19 项）
 
-脚本 `E:/workbuddy/网站优化/liti-shot-v13.mjs`（无头 Edge + CDP），截图在 `shots-v13/`。
+脚本 `liti-shot-v13.mjs`（无头 Edge + CDP），截图在 `shots-v13/`。
 
 1. 试卷页有「新建试卷」
 2. 新建弹窗里有「题序乱序」开关
@@ -205,12 +205,12 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.12 接口验收（77 项，SQLite 与 MySQL 双跑）
 
-脚本 `E:/workbuddy/网站优化/liti-features-v12.mjs`，目标地址读环境变量 `LITI_BASE`。
+脚本 `liti-features-v12.mjs`，目标地址读环境变量 `LITI_BASE`。
 
 | 组 | 覆盖 | 项数 |
 |---|---|---|
 | A 准备 | 三个内置账号登录、建分类/题目/试卷/学生账号 | 5 |
-| B 动作落库 | 38 个动作逐个验证：是否写进表、`target_label` 快照对不对、`detail` 里的差异是否只记改动项；含「重置密码不留明文」「改题干保留原标题」「撤销违规带理由」 | 34 |
+| B 动作落库 | 38 个动作逐个验证（v0.12 时点；后续版本累计到 42，`GET /api/audit/meta` 为准）：是否写进表、`target_label` 快照对不对、`detail` 里的差异是否只记改动项；含「重置密码不留明文」「改题干保留原标题」「撤销违规带理由」 | 34 |
 | C 查询筛选 | 时间倒序、分类/分级/操作人/对象/关键字/时间范围筛选、分页、矛盾组合返回空而非 500、`detail` 反序列化成对象、meta 字典完整 | 15 |
 | D 权限 | 未登录 401；学生、教师对列表 / meta / 导出 / 清理一律 403 | 6 |
 | E 导出 | CSV 成功、UTF-8 BOM（读原始字节确认 `EF BB BF`）、中文表头、动作导出成中文标签、导出本身留痕 | 5 |
@@ -224,7 +224,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ### v0.12 界面验收（22 项）
 
-脚本 `E:/workbuddy/网站优化/liti-shot-v12.mjs`（无头 Edge + CDP），截图在 `shots-v12/`。
+脚本 `liti-shot-v12.mjs`（无头 Edge + CDP），截图在 `shots-v12/`。
 
 1. 管理员侧边栏出现「审计日志」
 2. 进入 `/audit` 标题正确
@@ -260,8 +260,8 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ## v0.10 答案保存容错验收（34 项接口 + 18 项断网行为）
 
-脚本：`E://workbuddy//网站优化//liti-features-v10.mjs`（接口级，双库各跑一遍）
-界面：`E://workbuddy//网站优化//liti-shot-v10.mjs`（CDP 掐断 `/answers`，模拟答题中途断网）
+脚本：`liti-features-v10.mjs`（接口级，双库各跑一遍）
+界面：`liti-shot-v10.mjs`（CDP 掐断 `/answers`，模拟答题中途断网）
 
 **这组用例的核心不是「接口返回 200」，而是「断网时学生答的题到底算不算分」。** 界面脚本用 CDP 的 Fetch 域把 `PATCH /answers` 逐个 fail 掉（`ConnectionRefused`），其他请求照常放行——这正好是考场的真实故障形态：答案存不上，但交卷那一刻网络通了。
 
@@ -290,8 +290,8 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ## v0.11 实时监考验收（73 项接口 + 28 项界面）
 
-脚本：`E://workbuddy//网站优化//liti-features-v11.mjs`（接口级，双库各跑一遍）
-界面：`E://workbuddy//网站优化//liti-shot-v11.mjs`（造「答题中 / 已交卷 / 未开始」三种状态并走一遍撤销）
+脚本：`liti-features-v11.mjs`（接口级，双库各跑一遍）
+界面：`liti-shot-v11.mjs`（造「答题中 / 已交卷 / 未开始」三种状态并走一遍撤销）
 
 **这组用例最该盯的是「撤销之后额度到底退没退回来」和「成绩没公布时是不是真的给了 null」**，而不是监考页能不能打开。
 
@@ -324,8 +324,8 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ## v0.9 逐题分析验收（67 项，SQLite 与 MySQL 双跑）
 
-脚本：`E://workbuddy//网站优化//liti-features-v9.mjs`
-界面：`E://workbuddy//网站优化//liti-shot-v9.mjs`（25 项断言 + 7 张截图）
+脚本：`liti-features-v9.mjs`
+界面：`liti-shot-v9.mjs`（25 项断言 + 7 张截图）
 
 **这份用例不是「接口返回 200」式的验收**：它造了一份答案矩阵完全受控的数据（10 人 × 3 题 × 10 分），把 P 值与 D 值算成能手算核对的定值。
 
@@ -351,12 +351,12 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 18–20 | 「导出分析」指向 `/api/attempts/analysis/export?paperId=…`；有班级筛选；班级接口能返回演示班级 |
 | 21–25 | 选甲班后页面正常刷新、应考变 5 人；1440 宽下无横向溢出；**帮助文档有「逐题分析」一章**；**学生视角看不到「逐题分析」入口** |
 
-截图存于 `E://workbuddy//网站优化//shots-v9//`（01 试卷列表-更多含逐题分析、02 逐题分析-总览与分数分布、03 逐题分析-表格与选项分布、04 逐题分析-只看需关注、05 逐题分析-按班级筛选、06 学生视角-无分析入口、07 帮助-逐题分析章节）。
+截图存于 `shots-v9//`（01 试卷列表-更多含逐题分析、02 逐题分析-总览与分数分布、03 逐题分析-表格与选项分布、04 逐题分析-只看需关注、05 逐题分析-按班级筛选、06 学生视角-无分析入口、07 帮助-逐题分析章节）。
 
 ## v0.8 功能验收（66 项，SQLite 与 MySQL 双跑）
 
-脚本：`E://workbuddy//网站优化//liti-features-v8.mjs`
-界面：`E://workbuddy//网站优化//liti-shot-v8.mjs`（27 项断言 + 5 张截图）
+脚本：`liti-features-v8.mjs`
+界面：`liti-shot-v8.mjs`（27 项断言 + 5 张截图）
 迁移：`0011_exam_scale` 双库 Success
 
 | 分组 | 覆盖点 |
@@ -378,12 +378,12 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 18–22 | 「更多」下拉含「按班级导出成绩」；点开弹窗说明文字出现、班级选择框存在；导出链接带 `paperId` 与 `className` |
 | 23–27 | 学生视角列表显示剩余次数；练习卷显示「不限次数」而不是「次数已用完」；各页无横向溢出 |
 
-截图存于 `E://workbuddy//网站优化//shots-v8//`（01 用户管理-学号班级与筛选、02 导入学生名单、03 新建试卷-作答次数、04 按班级导出成绩、05 学生视角-剩余次数）。
+截图存于 `shots-v8//`（01 用户管理-学号班级与筛选、02 导入学生名单、03 新建试卷-作答次数、04 按班级导出成绩、05 学生视角-剩余次数）。
 
 ## v0.7 功能验收（60 项，SQLite 与 MySQL 双跑）
 
-脚本：`E://workbuddy//网站优化//liti-features-v7.mjs`
-界面：`E://workbuddy//网站优化//liti-shot-v7.mjs`（18 项断言 + 4 张截图）
+脚本：`liti-features-v7.mjs`
+界面：`liti-shot-v7.mjs`（18 项断言 + 4 张截图）
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -407,11 +407,11 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 12–15 | 学生看未公布成绩的答卷：提示「成绩尚未公布」「答案与解析暂不公布」，页面不出现具体分数 |
 | 16–18 | 首页卡片显示满分；未开考的卷子有状态提示 |
 
-截图存于 `E://workbuddy//网站优化//shots-v7//`（01 试卷列表、02 新建试卷、03 答卷-成绩未公布、04 首页-未开考）。
+截图存于 `shots-v7//`（01 试卷列表、02 新建试卷、03 答卷-成绩未公布、04 首页-未开考）。
 
 ## v0.6 安全验收（63 项，SQLite 与 MySQL 双跑）
 
-脚本：`E://workbuddy//网站优化//liti-sec.mjs`，详见 `docs/security.md`。
+脚本：`e2e/security.mjs`，详见 `docs/security.md`。
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -424,8 +424,8 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ## v0.5 功能验收（105 项，SQLite 与 MySQL 双跑）
 
-脚本：`E:\workbuddy\网站优化\liti-features-v6.mjs`（纯 HTTP 打接口，逐条断言）
-界面：`E:\workbuddy\网站优化\liti-shot-v6.mjs`（无头 Edge + CDP，28 项断言 + 9 张截图）
+脚本：`liti-features-v6.mjs`（纯 HTTP 打接口，逐条断言）
+界面：`liti-shot-v6.mjs`（无头 Edge + CDP，28 项断言 + 9 张截图）
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -455,12 +455,12 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 23–25 | 点「生成错题练习卷」→ 自动进入答题页，标题含「错题练习」 |
 | 26–28 | 学生试卷列表能看到演示卷；各页无横向溢出 |
 
-截图存于 `E:\workbuddy\网站优化\shots-v6\`（01 发布按分组、02 分组列表、03 分组成员、04 题库导出、05 教师学生管理、06 练习中心、07 错题本、08 错题详情、09 错题练习开考）。
+截图存于 `shots-v6\`（01 发布按分组、02 分组列表、03 分组成员、04 题库导出、05 教师学生管理、06 练习中心、07 错题本、08 错题详情、09 错题练习开考）。
 
 ## v0.4 功能验收（84 项，SQLite 与 MySQL 双跑）
 
-脚本：`E:\workbuddy\网站优化\liti-features-v5.mjs`（纯 HTTP 打接口，逐条断言）
-界面：`E:\workbuddy\网站优化\liti-shot-v5.mjs`（无头 Edge + CDP，20 项断言 + 8 张截图）
+脚本：`liti-features-v5.mjs`（纯 HTTP 打接口，逐条断言）
+界面：`liti-shot-v5.mjs`（无头 Edge + CDP，20 项断言 + 8 张截图）
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -486,11 +486,11 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 17–18 | 切走标签页 2 秒后返回，出现违规遮罩且**不会自动消失**，需点「我知道了，继续答题」 |
 | 19–20 | 试卷列表在 1280 宽下不横向溢出；学生视角显示「还可答 N 次」 |
 
-截图存于 `E:\workbuddy\网站优化\liti-shots-v5\`（01 首页跳转、02 发布选学生、03 题库批量条、04 答题暂停、05 答题卡标记、06 违规遮罩、07 次数上限、08 学生视角列表）。
+截图存于 `liti-shots-v5\`（01 首页跳转、02 发布选学生、03 题库批量条、04 答题暂停、05 答题卡标记、06 违规遮罩、07 次数上限、08 学生视角列表）。
 
 ## v0.3 功能验收（49 项，SQLite 与 MySQL 双跑）
 
-脚本：`E:\workbuddy\网站优化\liti-features-v4.mjs`（纯 HTTP 打接口，对 Docker 实例逐条断言）
+脚本：`liti-features-v4.mjs`（纯 HTTP 打接口，对 Docker 实例逐条断言）
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -583,7 +583,7 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 | 62 | 违规误报可撤销 | `POST /violations/:vid/revoke` 软撤销（记撤销人/时间/理由），活跃计数减一、总条数不变；可 `restore` 恢复；重复操作 400 | v0.11 验收 C 组 + 界面 14–20 |
 | 63 | 撤销后额度真的退回来 | 全部撤销后重新违规，前两次不交卷、**第 3 次才强制交卷** | v0.11 验收 D 组 |
 | 64 | 被强制收卷时学生页面自己知道 | 心跳回 `status != in_progress` 后前端直接跳结果页；已交卷再心跳返回 `submitted` 而非报错 | v0.11 验收 D8 + 代码路径 |
-| 65 | 管理动作要能追到「谁干的」 | 38 个动作显式埋点：发布/归档/删卷/强制收卷/改账号/重置密码/删账号/建删分组/改删题目/导入导出/改设置/撤销违规/登录失败…… | v0.12 验收 B 组 |
+| 65 | 管理动作要能追到「谁干的」 | 42 个动作显式埋点：发布/归档/删卷/强制收卷/改账号/重置密码/删账号/建删分组/改删题目/导入导出/改设置/撤销违规/登录失败…… | v0.12 验收 B 组 |
 | 66 | 记录能读懂，不只是一串 URL | `target_label` 存对象名称快照（卷名/人名/题干预览），`detail` 存差异摘要（`status: active → disabled`） | v0.12 验收 B 组 + 界面 6b |
 | 67 | 账号改名或删除后日志仍可读 | `actor_name` / `actor_role` / `target_label` 都是写入时快照，不 join 现查 | v0.12 验收 B13（删卷后仍能读出卷名）、B22（改名前原名保留） |
 | 68 | 按人 / 按对象 / 按时间能查 | `category` / `action` / `severity` / `actorId` / `targetType`+`targetId` / `keyword` / `from`+`to` / 分页 | v0.12 验收 C 组 + 界面 8–14 |
@@ -669,9 +669,18 @@ v1.0 是功能冻结版，发版前把历年验收脚本按当前镜像**整轮�
 
 ## 复现测试
 
+两套东西：仓库内的单元 / 集成 / E2E，和仓库外的版本验收脚本。
+
+版本验收脚本（`liti-features-v{2..14}.mjs` 打接口、`liti-shot-v*.mjs` 走无头浏览器截图）不随仓库分发，按版本编号单独维护。它们只认两个环境变量，所以换库换机器都不用改代码：
+
+| 变量 | 作用 |
+|---|---|
+| `LITI_BASE` | 目标地址，例如 `http://127.0.0.1:8080` |
+| `BENCH_TAG` | 只压测脚本用，给这轮造的数据加前缀，避免和真实数据混在一起 |
+
 ```bash
 pnpm install
-pnpm test          # 单元 + 集成（74 个）
+pnpm test          # 单元 + 集成（72 个）
 pnpm build         # 构建前端
 pnpm seed          # 建库 + 初始账号
 pnpm start         # 单进程启动（8080）
@@ -682,67 +691,67 @@ pnpm test:e2e      # E2E（需服务已启动）
 
 ```bash
 # v0.14（20 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v14.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v14.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v14.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v14.mjs
 
 # 界面验收（12 项 + 截图）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v14.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v14.mjs
 
 # v0.13（47 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v13.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v13.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v13.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v13.mjs
 
 # 界面验收（19 项 + 5 张截图）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v13.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v13.mjs
 
 # v0.12（77 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v12.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v12.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v12.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v12.mjs
 
 # 界面验收（22 项 + 9 张截图）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v12.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v12.mjs
 
 # v0.11（73 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v11.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v11.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v11.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v11.mjs
 
 # v0.10（34 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v10.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v10.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v10.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v10.mjs
 
 # v0.9（67 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v9.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v9.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v9.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v9.mjs
 
 # v0.8（66 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v8.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v8.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v8.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v8.mjs
 
 # v0.7（60 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v7.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v7.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v7.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v7.mjs
 
 # v0.6 安全（63 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-sec.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-sec.mjs
+LITI_BASE=http://192.168.1.61:8080 node e2e/security.mjs
+LITI_BASE=http://192.168.1.61:8081 node e2e/security.mjs
 
 # v0.5（105 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v6.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v6.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v6.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v6.mjs
 
 # v0.4（84 项，双库各跑一遍）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v5.mjs
-LITI_BASE=http://192.168.1.61:8081 node E:/workbuddy/网站优化/liti-features-v5.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v5.mjs
+LITI_BASE=http://192.168.1.61:8081 node liti-features-v5.mjs
 
 # v0.3 / v0.2 回归
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v4.mjs
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-features-v3.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v4.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-features-v3.mjs
 
 # 界面验收（无头 Edge，跑完出图到 shots-v9/、shots-v10/、shots-v11/）
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v11.mjs
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v10.mjs
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v9.mjs
-LITI_BASE=http://192.168.1.61:8080 node E:/workbuddy/网站优化/liti-shot-v8.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v11.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v10.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v9.mjs
+LITI_BASE=http://192.168.1.61:8080 node liti-shot-v8.mjs
 ```
 
 > `liti-features-v11.mjs` 里有一条会 `sleep 2.5 秒` 验证「不心跳时 lastSeenSec 会变大」，
