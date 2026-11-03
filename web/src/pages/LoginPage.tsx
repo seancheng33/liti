@@ -1,11 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Select, Space, Typography, theme as antdTheme } from 'antd';
-import { ArrowLeftOutlined, BgColorsOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Divider, Select, Space, Tooltip, Typography, message, theme as antdTheme } from 'antd';
+import {
+  ArrowLeftOutlined,
+  BgColorsOutlined,
+  QuestionCircleOutlined,
+  ReadOutlined,
+  SettingOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../theme';
 import { api } from '../api';
 import LoginForm from '../components/LoginForm';
 import ForgotPasswordModal from '../components/ForgotPasswordModal';
+import { demoLogin, useDemoInfo } from '../demo';
+
+const DEMO_ICON: Record<string, React.ReactNode> = {
+  admin: <SettingOutlined />,
+  teacher: <ReadOutlined />,
+  student: <UserOutlined />,
+};
 
 /** 只接受站内相对路径，避免 ?next=https://evil 这种开放跳转 */
 function safeNext(raw: string | null): string {
@@ -25,6 +39,19 @@ export default function LoginPage() {
     siteAnnouncement: '',
   });
   const [forgotOpen, setForgotOpen] = useState(false);
+  const demo = useDemoInfo();
+  const [demoBusy, setDemoBusy] = useState<string | null>(null);
+
+  const enterDemo = async (role: string) => {
+    if (demoBusy) return;
+    setDemoBusy(role);
+    try {
+      await demoLogin(role);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '进不去，稍后再试');
+      setDemoBusy(null);
+    }
+  };
 
   useEffect(() => {
     api
@@ -123,6 +150,31 @@ export default function LoginPage() {
               <Typography.Paragraph type="secondary" style={{ marginTop: -4, fontSize: 13 }}>
                 登录后将自动回到你刚才要去的页面
               </Typography.Paragraph>
+            )}
+
+            {demo && (
+              <>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {demo.accounts.map((a) => (
+                    <Tooltip key={a.role} title={a.hint} placement="bottom">
+                      <Button
+                        icon={DEMO_ICON[a.role]}
+                        loading={demoBusy === a.role}
+                        onClick={() => enterDemo(a.role)}
+                        style={{ flex: '1 1 30%', minWidth: 100 }}
+                      >
+                        {a.label}
+                      </Button>
+                    </Tooltip>
+                  ))}
+                </div>
+                <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                  点一下直接进入，不用输账号密码
+                </Typography.Text>
+                <Divider plain style={{ margin: '16px 0 12px', fontSize: 12 }}>
+                  或用账号密码登录
+                </Divider>
+              </>
             )}
 
             <LoginForm autoFocus onSuccess={goNext} />

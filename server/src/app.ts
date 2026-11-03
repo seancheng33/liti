@@ -16,6 +16,7 @@ import { groupRoutes } from './group/routes.js';
 import { statsRoutes } from './stats/routes.js';
 import { settingRoutes } from './settings/routes.js';
 import { publicRoutes } from './public/routes.js';
+import { demoRoutes } from './demo/routes.js';
 import { uploadRoutes } from './upload/routes.js';
 import { auditRoutes } from './audit/routes.js';
 import { HttpError } from './http-error.js';
@@ -31,7 +32,7 @@ export interface AppContext {
 }
 
 export async function buildApp(db: Db, config: Config): Promise<AppContext> {
-  const app = Fastify({ logger: config.NODE_ENV !== 'test' });
+  const app = Fastify({ logger: config.NODE_ENV !== 'test', trustProxy: config.TRUST_PROXY });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -112,6 +113,11 @@ export async function buildApp(db: Db, config: Config): Promise<AppContext> {
   await app.register(statsRoutes, { db, prefix: '/api/stats' });
   await app.register(settingRoutes, { db, prefix: '/api/settings' });
   await app.register(publicRoutes, { db, prefix: '/api/public' });
+  // 演示站的一键登录。注册这一步就卡在开关上：DEMO_MODE 关着的时候
+  // /api/demo/* 根本不存在，请求直接 404，不存在「handler 里忘了判断」的余地
+  if (config.DEMO_MODE) {
+    await app.register(demoRoutes, { db, config, prefix: '/api/demo' });
+  }
   await app.register(auditRoutes, { db, prefix: '/api/audit' });
   await app.register(uploadRoutes, { config, prefix: '/api/uploads' });
 

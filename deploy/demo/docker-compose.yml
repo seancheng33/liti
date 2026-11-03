@@ -1,0 +1,60 @@
+# 砺题 Liti 演示站
+#
+# 用法：
+#   cp .env.example .env      # 填一个 SESSION_SECRET
+#   docker compose up -d      # 首次会构建镜像，几分钟
+#   curl -s localhost:8089/api/health
+#
+# 完整的部署说明在 README.md。
+
+services:
+  liti-demo:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: liti-demo:latest
+    container_name: liti-demo
+    restart: unless-stopped
+
+    ports:
+      # 默认只监听本机，由 nginx 反代出去。
+      # 想直接 http://服务器IP:8089 访问，把 DEMO_BIND 改成 0.0.0.0，
+      # 并且把下面的 TRUST_PROXY 改成 "0"（否则任何人都能伪造 IP 绕过限流）。
+      - "${DEMO_BIND:-127.0.0.1}:${DEMO_PORT:-8089}:8080"
+
+    environment:
+      NODE_ENV: production
+      # 这两行是演示站的全部特殊之处，镜像本身和正式版完全一样
+      DEMO_MODE: "1"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+
+      SESSION_SECRET: ${SESSION_SECRET:?请先复制 .env.example 为 .env 并填一个 SESSION_SECRET，生成方法：openssl rand -hex 32}
+      SQLITE_PATH: /app/data/app.db
+      UPLOAD_DIR: /app/data/uploads
+
+    volumes:
+      - demo-data:/app/data
+
+    # 启动时先灌一套演示数据再起服务。
+    # 想让容器重启后保留数据，把这行注释掉，用镜像默认的 CMD。
+    command: ["sh", "-c", "node server/dist/demo/cli.js && exec node server/dist/server.js"]
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  demo-data:

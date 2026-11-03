@@ -17,6 +17,8 @@ test-results
 playwright-report
 docs
 e2e
+deploy
+scripts
 electron/main.ts
 electron/preload.ts
 electron/tsconfig.json

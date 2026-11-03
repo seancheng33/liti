@@ -23,6 +23,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import { useTheme } from '../theme';
+import DemoBanner from './DemoBanner';
 
 const ROLE_LABEL: Record<string, string> = { admin: '管理员', teacher: '教师', student: '学生' };
 const ROLE_COLOR: Record<string, string> = { admin: 'red', teacher: 'blue', student: 'green' };
@@ -164,6 +165,9 @@ export default function AppLayout({ children }: { children?: React.ReactNode }) 
           </Dropdown>
         </Space>
       </header>
+
+      {/* 演示站才渲染（正式部署拿不到 /api/demo/info，组件自己返回 null） */}
+      <DemoBanner />
 
       <div className="liti-body">
         <aside className="liti-sider">

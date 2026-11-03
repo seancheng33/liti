@@ -1,0 +1,47 @@
+# 演示站的反向代理示例。放到 /etc/nginx/conf.d/ 下改成自己的域名即可。
+#
+# 只做两件事：把 80 转给 443，把 443 转给本机的 liti-demo。
+# HTTPS 证书用 certbot 一条命令签（见 README）。
+
+server {
+    listen 80;
+    server_name demo.example.com;
+
+    # certbot 签发时要用到这个路径，别整个 80 都跳走
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name demo.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/demo.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/demo.example.com/privkey.pem;
+
+    # 题目配图走 JSON data URL 上传，单次请求上限 12MB，这里留点余量
+    client_max_body_size 20m;
+
+    # 演示站不太需要这些头，但加上没坏处
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+
+    location / {
+        proxy_pass http://127.0.0.1:8089;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 学生答题时会频繁自动保存，别让 nginx 把连接挂太久
+        proxy_read_timeout 60s;
+    }
+}

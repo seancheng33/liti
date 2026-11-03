@@ -413,13 +413,11 @@ export default function ProctorPage() {
         </Col>
         <Col xs={12} sm={8} md={4}>
           <Card className="liti-stat-card">
-            {/* 在线人数放标题里：塞进 suffix 会让这张卡单独换行，六张卡高度就不齐了 */}
-            <Statistic
-              title={`在场 · 在线 ${s.online}`}
-              value={s.inProgress + s.paused}
-              suffix="人"
-              valueStyle={{ color: s.offline > 0 ? '#dc2626' : undefined }}
-            />
+            {/* 在线人数放标题里：塞进 suffix 会让这张卡单独换行，六张卡高度就不齐了。
+                括号而不是「·」，是因为值本身是「在场」人数 —— 写成「在场 · 在线 5」
+                会被读成「在线 5 人」，再和旁边的掉线数一加就超过应考人数了。
+                在场 = 在线 + 掉线 + 暂停，掉线单独有卡，暂停在列表里标橙色。 */}
+            <Statistic title={`在场（在线 ${s.online}）`} value={s.inProgress + s.paused} suffix="人" />
           </Card>
         </Col>
         <Col xs={12} sm={8} md={4}>

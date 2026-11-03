@@ -103,6 +103,7 @@ liti/
 │  └─ src/pages/             # 登录/题库/试卷/答题/解析/成绩/逐题分析/实时监考/审计日志/练习中心/错题本/分组
 ├─ e2e/                      # Playwright E2E 测试
 ├─ electron/                 # 桌面壳（Electron，物理级防切屏）
+├─ deploy/demo/              # 公网演示站：compose + nginx 示例 + 部署说明
 ├─ data/                     # SQLite 数据库文件（运行时生成，不入库）
 ├─ playwright.config.ts
 └─ README.md
@@ -139,6 +140,22 @@ pnpm start          # 单进程运行，托管 API + 静态资源
 ```
 
 浏览器访问 `http://<局域网IP>:8080`。完整部署步骤（防火墙、开机自启、MySQL、Electron 等）见 [docs/deployment.md](docs/deployment.md)。
+
+### 演示站（给人试用）
+
+想挂一个公网 demo 让人直接点，不用发账号密码：
+
+```bash
+cd deploy/demo
+cp .env.example .env      # 填 SESSION_SECRET
+docker compose up -d
+```
+
+镜像和正式版是同一个，靠 `DEMO_MODE=1` 打开三个东西：登录页的「一键体验」（免密进管理员/教师/学生）、全站顶部的演示横幅、每小时自动还原的演示数据。数据是一整套用了一学期的现场——40 道题、4 张试卷、24 个学生、19 份已出分的答卷，监考页里还有人正在作答。
+
+详细步骤、HTTPS 配置、内容替换见 [deploy/demo/README.md](deploy/demo/README.md)。
+
+> 这个开关等于把登录门拆了，**只能开在演示实例上**。正式部署别抄那份 compose。
 
 ---
 

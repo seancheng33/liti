@@ -12,6 +12,30 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(16).default('dev-secret-change-me-please'),
   SESSION_TTL_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60 * 1000),
   AUTH_PROVIDERS: z.string().default('local'),
+  /**
+   * 演示模式开关。开启后：
+   * - 注册 /api/demo/* （一键体验登录，不需要密码）
+   * - 登录页显示三个「一键体验」按钮，全站顶部显示「演示环境」横幅
+   *
+   * **默认关闭，且只该在演示实例上开**。这个开关等于把账号密码这道门拆了，
+   * 生产环境误开一次就是把后台交出去。所以只认字符串 '1'，
+   * 不用 z.coerce.boolean —— 那个会把 'false' 也当成 true。
+   */
+  DEMO_MODE: z
+    .enum(['0', '1'])
+    .default('0')
+    .transform((v) => v === '1'),
+  /**
+   * 是否信任反向代理传来的 X-Forwarded-For。
+   *
+   * 默认关：直连部署时开着它，任何客户端都能伪造 IP，把登录限流绕过去
+   * （换个 X-Forwarded-For 就换一个桶）。只有在确实挂在 nginx/caddy 后面、
+   * 且只有反代能访问到本进程时才该打开。
+   */
+  TRUST_PROXY: z
+    .enum(['0', '1'])
+    .default('0')
+    .transform((v) => v === '1'),
 });
 
 export type Config = z.infer<typeof envSchema>;
