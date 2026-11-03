@@ -1,27 +1,21 @@
-Copyright (c) 2026 seancheng33 <aya234@163.com>
+MIT License
 
-砺题 Liti（以下简称"本软件"）为专有软件，保留所有权利。
+Copyright (c) 2026 seancheng33
 
-未经著作权人书面许可，任何单位或个人不得：
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. 复制、分发、出租、出借本软件或其任何部分；
-2. 修改、改编、翻译本软件，或基于本软件创作衍生作品；
-3. 反向工程、反编译或反汇编本软件（法律明确允许的情形除外）；
-4. 移除或修改本软件中的著作权声明、商标或其他权利标识；
-5. 将本软件或其衍生品用于商业销售、托管服务或对外提供收费服务。
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-允许的行为：
-
-1. 在获得授权的范围内安装并运行本软件；
-2. 为部署、运维、故障排查之目的阅读源码（已获授权的部署方）；
-3. 备份本软件及其数据。
-
-本软件按"现状"提供，不附带任何明示或默示的担保，包括但不限于适销性、
-特定用途适用性和非侵权性的担保。在任何情况下，著作权人不对因使用或
-无法使用本软件而产生的任何索赔、损害或其他责任承担责任，无论该责任
-源于合同、侵权或其他。
-
-本软件包含的第三方开源依赖各自遵循其原有许可证，清单见
-`pnpm-lock.yaml` 与各依赖包的 LICENSE 文件。
-
-如需商业授权，请联系 aya234@163.com。
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
