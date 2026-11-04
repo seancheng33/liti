@@ -1,6 +1,7 @@
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { loadPaperRoster } from '../paper/roster.js';
+import { effectivePassScore } from '../paper/service.js';
 
 const LETTERS = 'ABCDEFGH';
 
@@ -171,7 +172,8 @@ export async function analyzePaper(
     : 0;
   const variance = sampleCount ? scores.reduce((s, v) => s + (v - avgScore) ** 2, 0) / sampleCount : 0;
   const stdDev = round(Math.sqrt(variance), 2);
-  const passCount = sample.filter((a) => a.score >= paper.pass_score).length;
+  const effPassScore = effectivePassScore(paper.pass_score, paperTotal);
+  const passCount = sample.filter((a) => a.score >= effPassScore).length;
   const durations = sample
     .map((a) => Math.max(0, (a.submitted_at ?? a.deadline_at) - a.started_at - a.paused_total_ms))
     .map((ms) => Math.round(ms / 1000));
@@ -401,7 +403,7 @@ export async function analyzePaper(
       title: paper.title,
       questionCount: paper.question_count,
       totalScore,
-      passScore: paper.pass_score,
+      passScore: effPassScore,
       perQuestionScore: paper.per_question_score,
       startAt: paper.start_at ?? null,
       endAt: paper.end_at ?? null,

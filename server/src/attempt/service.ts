@@ -3,7 +3,7 @@ import type { Database, AttemptRow } from '../db/types.js';
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { parseImageList } from '../media.js';
-import { MAX_ATTEMPTS_PER_PAPER, paperVisibleTo, sampleQuestionIds, type SampleRule } from '../paper/service.js';
+import { MAX_ATTEMPTS_PER_PAPER, effectivePassScore, paperTotalScore, paperVisibleTo, sampleQuestionIds, type SampleRule } from '../paper/service.js';
 import { fisherYates, MAX_PAPER_QUESTIONS } from '../paper/validate.js';
 import { recordCorrect, recordWrong, sampleWrongQuestionIds } from '../wrong/service.js';
 import { countActiveViolations } from './proctor.js';
@@ -204,7 +204,9 @@ export async function startPractice(db: Db, userId: number, opts: PracticeOption
         mode: 'random',
         question_count: questionIds.length,
         duration_sec: durationSec,
-        pass_score: 60,
+        // 0 = 自动及格线：按总分 60% 折算（见 effectivePassScore）。
+        // 练习题量不固定，写死 60 分会让小卷子永远不及格
+        pass_score: 0,
         review_mode: 'immediate',
         shuffle_options: 1,
         random_config: randomConfig,
@@ -686,7 +688,8 @@ export async function getAttemptReview(db: Db, attemptId: number, userId: number
     score: resultsVisible ? refreshed.score : null,
     totalScore: resultsVisible ? refreshed.total_score : null,
     correctCount: resultsVisible ? refreshed.correct_count : null,
-    passScore: paper?.pass_score ?? 60,
+    // 下发换算后的有效及格分：练习卷 pass_score=0 在这里折成总分 60%
+    passScore: paper ? effectivePassScore(paper.pass_score, paperTotalScore(paper)) : 60,
     resultsPublished: resultsVisible,
     analysisPublished: analysisVisible,
     /** 本场能不能自己点暂停（考试卷通常是 false） */

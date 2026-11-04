@@ -1,6 +1,7 @@
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { parseImageList } from '../media.js';
+import { effectivePassScore, paperTotalScore } from './service.js';
 
 /** 预览用选项：只给字母、文字、图片，**不含 is_correct** */
 export interface PreviewOption {
@@ -143,7 +144,7 @@ export async function previewPaperById(db: Db, paperId: number): Promise<PaperPr
     title: paper.title,
     questionCount: items.length,
     durationSec: paper.duration_sec,
-    passScore: paper.pass_score,
+    passScore: effectivePassScore(paper.pass_score, paperTotalScore(paper)),
     reviewMode: paper.review_mode,
     shuffleOptions: paper.shuffle_options === 1,
     shuffleQuestions: paper.shuffle_questions === 1,

@@ -727,8 +727,12 @@ export default function PapersPage() {
             <Form.Item name="perQuestionScore" label="每题分值" tooltip="总分 = 题量 × 每题分值，直接影响及格线怎么算">
               <InputNumber min={1} max={100} style={{ width: 110 }} addonAfter="分" />
             </Form.Item>
-            <Form.Item name="passScore" label="及格分" tooltip="按总分算的绝对分：得满这个分才算及格">
-              <InputNumber min={0} max={10000} style={{ width: 120 }} addonAfter="分" />
+            <Form.Item
+              name="passScore"
+              label="及格分"
+              tooltip="按总分算的绝对分：得满这个分才算及格。学生自助练习的卷子不填这个，默认按满分的 60% 自动判"
+            >
+              <InputNumber min={1} max={10000} style={{ width: 120 }} addonAfter="分" />
             </Form.Item>
             <Form.Item name="shuffleOptions" label="选项乱序" valuePropName="checked" tooltip="每个学生拿到的选项顺序不同，防抄袭">
               <Switch />

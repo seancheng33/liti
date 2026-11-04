@@ -15,6 +15,7 @@ import * as migration0013 from '../migrations/0013_fix_proctor_timestamps.js';
 import * as migration0014 from '../migrations/0014_audit.js';
 import * as migration0015 from '../migrations/0015_shuffle_questions.js';
 import * as migration0016 from '../migrations/0016_password_reset.js';
+import * as migration0017 from '../migrations/0017_practice_pass_auto.js';
 
 const migrations: Record<string, Migration> = {
   '0001_init': migration0001,
@@ -33,6 +34,7 @@ const migrations: Record<string, Migration> = {
   '0014_audit': migration0014,
   '0015_shuffle_questions': migration0015,
   '0016_password_reset': migration0016,
+  '0017_practice_pass_auto': migration0017,
 };
 
 const provider: MigrationProvider = {

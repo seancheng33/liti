@@ -373,6 +373,7 @@ function HelpBody() {
             <Paragraph>
               练习卷和正式试卷的区别：<Text strong>不计入「每卷 3 次」的限制</Text>、交卷后立刻能看解析、
               不会出现在「试卷」列表里。成绩照样记在「我的答卷」里。
+              及格线也不用老师操心——练习卷默认按<Text strong>满分的 60%</Text>自动判定，比如抽 10 题满分 10 分，得 6 分就算及格。
             </Paragraph>
             <Alert
               type="warning"

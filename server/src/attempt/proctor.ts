@@ -1,6 +1,7 @@
 import type { Db } from '../db/index.js';
 import { HttpError } from '../http-error.js';
 import { loadPaperRoster, sortRoster } from '../paper/roster.js';
+import { effectivePassScore } from '../paper/service.js';
 
 /**
  * 实时监考（v0.11）。
@@ -266,7 +267,7 @@ export async function loadProctorView(db: Db, paperId: number): Promise<ProctorV
       title: paper.title,
       questionCount,
       totalScore: paper.per_question_score * questionCount,
-      passScore: paper.pass_score,
+      passScore: effectivePassScore(paper.pass_score, paper.per_question_score * questionCount),
       startAt: paper.start_at,
       endAt: paper.end_at,
       status: paper.status,

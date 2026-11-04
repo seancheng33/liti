@@ -9,6 +9,26 @@ export const MAX_ATTEMPTS_PER_PAPER = 3;
 
 type AnyDb = Kysely<Database> | Transaction<Database>;
 
+/**
+ * paper 行的总分 = 题量 × 每题分值（paper 表不存总分，动态算）。
+ */
+export function paperTotalScore(p: { question_count: number; per_question_score: number | null }): number {
+  return p.question_count * (p.per_question_score ?? 1);
+}
+
+/**
+ * 有效及格分。
+ *
+ * pass_score = 0 是「自动」哨兵：按总分的 60% 四舍五入。
+ * 练习卷（学生自助生成）默认走自动——不然 10 题满分 10 分的练习卷
+ * 配写死的 60 分及格线，永远判不及格。> 0 是手动设置的绝对分，
+ * 正式考试的卷子照旧自己填。
+ */
+export function effectivePassScore(passScore: number, totalScore: number): number {
+  if (passScore > 0) return passScore;
+  return totalScore > 0 ? Math.round(totalScore * 0.6) : 0;
+}
+
 export interface SampleRule {
   /** 留空表示从整个题库抽 */
   categoryId?: number;

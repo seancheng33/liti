@@ -79,3 +79,40 @@ describe('学生自助练习', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe('练习卷及格线自动按满分 60%', () => {
+  it('抽 5 题全对：及格线折算为 3 分，成绩及格', async () => {
+    // beforeAll 里建了 5 道题（正确项都是 B）
+    const start = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/attempts/practice',
+      headers: { cookie },
+      payload: { rules: [{ count: 5 }] },
+    });
+    expect(start.statusCode).toBe(200);
+    const attemptId = start.json().id;
+
+    // 从答题视图拿每题的正确选项（练习 immediate 模式可见），组成满分答案
+    const taking = await ctx.app.inject({ method: 'GET', url: `/api/attempts/${attemptId}`, headers: { cookie } });
+    const answers = taking.json().items.map((item: { questionId: number; options: { id: number; isCorrect: boolean | null }[] }) => ({
+      questionId: item.questionId,
+      selectedOptionIds: item.options.filter((o) => o.isCorrect === true).map((o) => o.id),
+    }));
+
+    const submit = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/attempts/${attemptId}/submit`,
+      headers: { cookie },
+      payload: { answers },
+    });
+    expect(submit.statusCode).toBe(200);
+
+    const review = await ctx.app.inject({ method: 'GET', url: `/api/attempts/${attemptId}`, headers: { cookie } });
+    const rb = review.json();
+    // 总分 5 分，及格线 = round(5 × 60%) = 3，不再是写死的 60
+    expect(rb.totalScore).toBe(5);
+    expect(rb.passScore).toBe(3);
+    expect(rb.score).toBe(5);
+    expect(rb.score).toBeGreaterThanOrEqual(rb.passScore);
+  });
+});

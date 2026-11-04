@@ -4,6 +4,7 @@ import type { Db } from '../db/index.js';
 import type { AttemptRow } from '../db/types.js';
 import { HttpError } from '../http-error.js';
 import { loadPaperRoster, sortRoster } from '../paper/roster.js';
+import { effectivePassScore } from '../paper/service.js';
 import { TEMPLATE_HEADERS } from './template.js';
 
 const STATUS_LABEL: Record<string, string> = { in_progress: '进行中', submitted: '已交卷', expired: '已超时' };
@@ -126,6 +127,8 @@ async function exportPaperScores(db: Db, paperId: number, className?: string): P
   for (const a of attempts) if (!latest.has(a.user_id)) latest.set(a.user_id, a);
 
   const totalScore = paper.question_count * paper.per_question_score;
+  // 练习卷 pass_score=0 表示自动：按总分 60% 折算，判定与展示都用有效值
+  const effPassScore = effectivePassScore(paper.pass_score, totalScore);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(classLabel ? `成绩册-${classLabel}` : '成绩册');
   ws.columns = [
@@ -152,7 +155,7 @@ async function exportPaperScores(db: Db, paperId: number, className?: string): P
     const graded = a && (a.status === 'submitted' || a.status === 'expired');
     if (graded) {
       finished++;
-      if (a.score >= paper.pass_score) passedCount++;
+      if (a.score >= effPassScore) passedCount++;
     }
     ws.addRow({
       student_no: u.student_no ?? '',
@@ -161,7 +164,7 @@ async function exportPaperScores(db: Db, paperId: number, className?: string): P
       username: u.username,
       score: graded ? a.score : '',
       total_score: totalScore,
-      passed: graded ? (a.score >= paper.pass_score ? '及格' : '不及格') : '',
+      passed: graded ? (a.score >= effPassScore ? '及格' : '不及格') : '',
       correct_count: graded ? a.correct_count : '',
       question_count: paper.question_count,
       status: !a ? '未参加' : (STATUS_LABEL[a.status] ?? a.status),
@@ -182,7 +185,7 @@ async function exportPaperScores(db: Db, paperId: number, className?: string): P
   info.addRow({ k: '题量', v: paper.question_count });
   info.addRow({ k: '每题分值', v: paper.per_question_score });
   info.addRow({ k: '总分', v: totalScore });
-  info.addRow({ k: '及格线', v: paper.pass_score });
+  info.addRow({ k: '及格线', v: paper.pass_score > 0 ? paper.pass_score : `自动（满分的 60% = ${effPassScore} 分）` });
   if (classLabel) {
     info.addRow({ k: '本次导出班级', v: classLabel });
     info.addRow({ k: '该场应考总人数', v: rosterAll.length });

@@ -119,7 +119,7 @@ export interface AttemptReview {
   score: number | null;
   totalScore: number | null;
   correctCount: number | null;
-  /** 及格线（绝对分），由试卷配置决定 */
+  /** 及格线（绝对分）。手动设置的卷子就是配置值；练习卷由后端按满分 60% 折算好下发 */
   passScore: number;
   resultsPublished: boolean;
   analysisPublished: boolean;

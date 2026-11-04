@@ -20,7 +20,8 @@ const paperSchema = z.object({
   title: z.string().min(1),
   mode: z.enum(['random', 'fixed']),
   durationSec: z.number().int().min(1),
-  passScore: z.number().int().min(0).max(10000).optional(),
+  // 及格分手动设置时必须 ≥1；0 是练习卷「自动按 60%」的保留值，不让教师填
+  passScore: z.number().int().min(1).max(10000).optional(),
   reviewMode: z.enum(['after_submit', 'immediate', 'never']).optional(),
   shuffleOptions: z.boolean().optional(),
   shuffleQuestions: z.boolean().optional(),
