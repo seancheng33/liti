@@ -109,3 +109,90 @@ describe('题库 CRUD', () => {
     expect(detail.statusCode).toBe(200);
   });
 });
+
+describe('编辑题目不影响已交卷的选项快照', () => {
+  it('只改解析时，选项 id 与内容保持不变（历史答卷按旧 id 取内容）', async () => {
+    const cookie = await login('t1', 'pw123456');
+    const create = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/questions',
+      headers: { cookie },
+      payload: { ...singleQ, allowDuplicate: true },
+    });
+    const id = create.json().id;
+
+    const before = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
+    const optsBefore = before.json().options;
+
+    // 教师只改解析，选项原样带回（编辑表单就是这么做全量提交的）
+    const res = await ctx.app.inject({
+      method: 'PUT',
+      url: `/api/questions/${id}`,
+      headers: { cookie },
+      payload: { ...singleQ, explanation: '修正后的解析', allowDuplicate: true },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const after = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
+    const optsAfter = after.json().options;
+
+    expect(after.json().explanation).toBe('修正后的解析');
+    expect(optsAfter).toHaveLength(optsBefore.length);
+    // 关键断言：id 不变——交卷快照 attempt_item.option_order/selected 存的是这些 id，
+    // 重建选项会让旧 id 全部失配，历史解析页选项变空白
+    expect(optsAfter.map((o: { id: number }) => o.id)).toEqual(optsBefore.map((o: { id: number }) => o.id));
+    expect(optsAfter.map((o: { content: string }) => o.content)).toEqual(optsBefore.map((o: { content: string }) => o.content));
+    expect(optsAfter.map((o: { isCorrect: boolean }) => o.isCorrect)).toEqual(optsBefore.map((o: { isCorrect: boolean }) => o.isCorrect));
+  });
+
+  it('增删选项时，保留的选项 id 不变，新增的在尾部，减少的从尾部删', async () => {
+    const cookie = await login('t1', 'pw123456');
+    const create = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/questions',
+      headers: { cookie },
+      payload: { ...singleQ, allowDuplicate: true },
+    });
+    const id = create.json().id;
+    const before = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
+    const idsBefore = before.json().options.map((o: { id: number }) => o.id);
+
+    // 4 个选项加到 5 个：原 4 个 id 保留，新增第 5 个
+    const five = await ctx.app.inject({
+      method: 'PUT',
+      url: `/api/questions/${id}`,
+      headers: { cookie },
+      payload: {
+        ...singleQ,
+        options: [...singleQ.options, { content: '5', isCorrect: false }],
+        allowDuplicate: true,
+      },
+    });
+    expect(five.statusCode).toBe(200);
+    let detail = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
+    let opts = detail.json().options;
+    expect(opts).toHaveLength(5);
+    expect(opts.slice(0, 4).map((o: { id: number }) => o.id)).toEqual(idsBefore);
+    expect(opts[4].content).toBe('5');
+
+    // 5 个减到 2 个：前 2 个 id 保留，其余删除
+    const two = await ctx.app.inject({
+      method: 'PUT',
+      url: `/api/questions/${id}`,
+      headers: { cookie },
+      payload: {
+        ...singleQ,
+        options: [
+          { content: '1', isCorrect: false },
+          { content: '2', isCorrect: true },
+        ],
+        allowDuplicate: true,
+      },
+    });
+    expect(two.statusCode).toBe(200);
+    detail = await ctx.app.inject({ method: 'GET', url: `/api/questions/${id}`, headers: { cookie } });
+    opts = detail.json().options;
+    expect(opts).toHaveLength(2);
+    expect(opts.map((o: { id: number }) => o.id)).toEqual(idsBefore.slice(0, 2));
+  });
+});

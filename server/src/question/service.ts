@@ -137,16 +137,36 @@ export async function updateQuestion(
       .where('id', '=', id)
       .execute();
 
-    await trx.deleteFrom('question_option').where('question_id', '=', id).execute();
-    const options = draft.options.map((o, i) => ({
-      question_id: id,
+    // 选项就地更新，不整表重建：交卷快照（attempt_item.option_order / selected）存的是选项 id，
+    // 重建会让全部 id 换新，历史答卷解析页按旧 id 取内容就取不到，选项会变成只剩字母的空壳。
+    // 按位置对应：前 N 个更新原有行（id 不变），多出的追加，多余的删除。
+    const existingOptions = await trx
+      .selectFrom('question_option')
+      .select('id')
+      .where('question_id', '=', id)
+      .orderBy('sort_order', 'asc')
+      .orderBy('id', 'asc')
+      .execute();
+
+    const optionValues = draft.options.map((o, i) => ({
       content: o.content?.trim() ?? '',
       images: serializeImageList(o.images ?? []),
       is_correct: o.isCorrect ? 1 : 0,
       sort_order: i,
     }));
-    if (options.length) {
-      await trx.insertInto('question_option').values(options).execute();
+
+    const keep = Math.min(existingOptions.length, optionValues.length);
+    for (let i = 0; i < keep; i++) {
+      await trx.updateTable('question_option').set(optionValues[i]).where('id', '=', existingOptions[i].id).execute();
+    }
+    if (optionValues.length > keep) {
+      await trx
+        .insertInto('question_option')
+        .values(optionValues.slice(keep).map((v) => ({ question_id: id, ...v })))
+        .execute();
+    }
+    for (let i = keep; i < existingOptions.length; i++) {
+      await trx.deleteFrom('question_option').where('id', '=', existingOptions[i].id).execute();
     }
   });
 }
