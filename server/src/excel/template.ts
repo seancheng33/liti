@@ -26,7 +26,7 @@ const HEADER_TIPS: Record<string, string> = {
   选项F: '选项文字，不需要可留空',
   正确答案: '单选填一个字母（如 B）；多选填多个（如 ACD）',
   解析: '交卷后展示给答题人，可留空',
-  分类: '填写已有的分类名；留空则归为未分类',
+  分类: '填写分类名；不存在时会自动创建；留空则归为未分类',
   标签: '多个标签用逗号分隔，如：数学,入门',
 };
 
@@ -114,6 +114,7 @@ export async function buildTemplate(): Promise<Buffer> {
   help.addRow({ col: '注意', rule: '第 1 行是表头，请从第 2 行开始填写；一次最多导入 500 行。' });
   help.addRow({ col: '注意', rule: '单选必须且只能有一个正确答案；多选至少两个正确答案。' });
   help.addRow({ col: '注意', rule: '题干与已有题目重复时，会按你选择的「重复处理方式」跳过或拦截。' });
+  help.addRow({ col: '注意', rule: '分类列填了不存在的名字时会自动新建该分类；同一批里相同的名字只建一个。' });
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);

@@ -76,6 +76,8 @@ export async function parseQuestionRows(buffer: Buffer): Promise<ParsedRow[]> {
     const errors: string[] = [];
     if (!type) errors.push('题型无效（应填写 单选/多选）');
     if (!answerRaw) errors.push('正确答案不能为空');
+    // 分类列现在允许写新名字（导入时自动建），但 category.name 是 varchar(128)，超长会在入库时报错，提前拦下
+    if (cellText(row, 11).length > 128) errors.push('分类名过长（最多 128 字）');
     errors.push(...validateQuestionDraft(draft));
 
     out.push({
@@ -110,6 +112,8 @@ export interface ImportSummary {
   success: number;
   failed: number;
   skippedDuplicates: number;
+  /** 本次导入自动新建的分类名（dryRun 时是「将会新建」的名单） */
+  createdCategories: string[];
   rows: ImportRowResult[];
 }
 
@@ -132,7 +136,9 @@ export async function importQuestions(
   }
 
   const rows: ImportRowResult[] = [];
-  const toImport: { draft: QuestionDraft }[] = [];
+  const toImport: { draft: QuestionDraft; categoryName: string }[] = [];
+  /** 有效行里出现的不存在的分类名：正式导入时批量新建，dryRun 时只报告 */
+  const missingCategories = new Set<string>();
   let invalid = 0;
   let skipped = 0;
 
@@ -145,15 +151,9 @@ export async function importQuestions(
 
     const draft = p.draft!;
 
-    let categoryId: number | null = null;
-    if (p.categoryName) {
-      const cid = categoryMap.get(p.categoryName);
-      if (cid == null) {
-        invalid++;
-        rows.push({ row: p.row, ok: false, errors: [`分类不存在: ${p.categoryName}`] });
-        continue;
-      }
-      categoryId = cid;
+    // 分类不存在不再拦行：记下来，循环结束后统一新建（v1.1.0 起的行为）
+    if (p.categoryName && !categoryMap.has(p.categoryName)) {
+      missingCategories.add(p.categoryName);
     }
 
     const hash = contentHash(draft.stem);
@@ -170,19 +170,44 @@ export async function importQuestions(
     byHash.set(hash, dupId ?? -1);
     if (loose) byLoose.set(loose, dupId ?? -1);
 
-    toImport.push({ draft: { ...draft, categoryId } });
+    toImport.push({ draft, categoryName: p.categoryName });
     rows.push({ row: p.row, ok: true, errors: [] });
   }
 
   const hasProblems = invalid > 0 || skipped > 0;
   if (opts.mode === 'strict' && hasProblems) {
-    return { total: parsed.length, success: 0, failed: invalid + skipped, skippedDuplicates: skipped, rows };
+    return {
+      total: parsed.length,
+      success: 0,
+      failed: invalid + skipped,
+      skippedDuplicates: skipped,
+      createdCategories: [],
+      rows,
+    };
+  }
+
+  // strict 被拦截时不建分类；dryRun 不动库，只把「将会新建」的名单报出去
+  const createdCategories: string[] = [];
+  if (opts.dryRun) {
+    createdCategories.push(...missingCategories);
+  } else if (missingCategories.size > 0) {
+    const now = Date.now();
+    for (const name of missingCategories) {
+      const res = await db
+        .insertInto('category')
+        .values({ name, parent_id: null, sort: 0, created_at: now })
+        .executeTakeFirstOrThrow();
+      categoryMap.set(name, Number(res.insertId));
+      createdCategories.push(name);
+    }
   }
 
   if (!opts.dryRun) {
     for (const item of toImport) {
-      // 查重已经在本函数内统一处理过（含 allow 模式），这里不再逐条重查
-      await createQuestion(db, item.draft, opts.userId, { allowDuplicate: true });
+      // 查重已经在本函数内统一处理过（含 allow 模式），这里不再逐条重查；
+      // 分类映射放在建分类之后，缺失的分类此时已经有 id 了
+      const categoryId = item.categoryName ? (categoryMap.get(item.categoryName) ?? null) : null;
+      await createQuestion(db, { ...item.draft, categoryId }, opts.userId, { allowDuplicate: true });
     }
     const now = Date.now();
     await db
@@ -204,6 +229,7 @@ export async function importQuestions(
     success: toImport.length,
     failed: invalid + skipped,
     skippedDuplicates: skipped,
+    createdCategories,
     rows,
   };
 }

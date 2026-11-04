@@ -120,7 +120,7 @@ describe('Excel 导入', () => {
     expect(q).toBeUndefined();
   });
 
-  it('分类不存在时报错', async () => {
+  it('分类不存在时自动创建（dryRun 只报告不落库）', async () => {
     const buf = await buildXlsx([
       header,
       ['单选', '分类题', '1', '2', '', '', '', '', 'A', '', '不存在的分类', '', ''],
@@ -132,7 +132,62 @@ describe('Excel 导入', () => {
       payload: buf,
     });
     const body = res.json();
+    expect(body.failed).toBe(0);
+    expect(body.success).toBe(1);
+    expect(body.createdCategories).toEqual(['不存在的分类']);
+    // 预检不落库：分类和题目都不该真的建出来
+    const cat = await ctx.db.selectFrom('category').where('name', '=', '不存在的分类').select('id').executeTakeFirst();
+    expect(cat).toBeUndefined();
+    const q = await ctx.db.selectFrom('question').where('stem', '=', '分类题').select('id').executeTakeFirst();
+    expect(q).toBeUndefined();
+  });
+
+  it('正式导入自动新建分类并挂到题目上', async () => {
+    const buf = await buildXlsx([
+      header,
+      ['单选', '自建分类题', '1', '2', '', '', '', '', 'A', '', '物理', '', ''],
+      ['单选', '另一题', '3', '4', '', '', '', '', 'B', '', '物理', '', ''],
+    ]);
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/questions/import',
+      headers: { cookie, 'content-type': XLSX },
+      payload: buf,
+    });
+    const body = res.json();
+    expect(body.failed).toBe(0);
+    expect(body.createdCategories).toEqual(['物理']);
+
+    const cat = await ctx.db.selectFrom('category').where('name', '=', '物理').selectAll().executeTakeFirst();
+    expect(cat).toBeDefined();
+    // 同一批里两行同分类，只建一个
+    const all = await ctx.db.selectFrom('category').where('name', '=', '物理').selectAll().execute();
+    expect(all.length).toBe(1);
+
+    const q = await ctx.db
+      .selectFrom('question')
+      .where('stem', '=', '自建分类题')
+      .select(['id', 'category_id'])
+      .executeTakeFirst();
+    expect(q?.category_id).toBe(cat!.id);
+  });
+
+  it('分类名超长时报行错误且不建分类', async () => {
+    const longName = '超'.repeat(129);
+    const buf = await buildXlsx([
+      header,
+      ['单选', '超长分类题', '1', '2', '', '', '', '', 'A', '', longName, '', ''],
+    ]);
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/questions/import',
+      headers: { cookie, 'content-type': XLSX },
+      payload: buf,
+    });
+    const body = res.json();
     expect(body.failed).toBe(1);
-    expect(body.rows[0].errors.join()).toContain('分类不存在');
+    expect(body.rows[0].errors.join()).toContain('分类名过长');
+    const cat = await ctx.db.selectFrom('category').where('name', '=', longName).select('id').executeTakeFirst();
+    expect(cat).toBeUndefined();
   });
 });

@@ -90,10 +90,10 @@ curl -b c.txt http://127.0.0.1:8080/api/auth/me
 | POST | `/batch` | admin teacher | 批量改分类 / 批量归档 |
 | POST | `/check-duplicate` | admin teacher | 按 `content_hash` 查重，命中返回 409 与相似题 |
 | GET | `/template` | admin teacher | 导入模板 xlsx（12 列，带题型下拉与输入提示） |
-| POST | `/import` | admin teacher | Excel 导入。逐行独立提交，返回 warnings / errors |
+| POST | `/import` | admin teacher | Excel 导入。逐行独立提交，返回 warnings / errors；响应含 `createdCategories`（本次自动新建的分类名，dryRun 时是将会新建的名单）。分类列写不存在的名字会自动建，同一批同名只建一个 |
 | GET | `/export` | admin teacher | 导出 xlsx，列与模板一致，**导出的文件能直接回导** |
 
-题目类型：`single` 单选 / `multiple` 多选 / `judge` 判断。`difficulty` 字段已废弃，传了也会被忽略。
+题目类型：`single` 单选 / `multiple` 多选（`judge` 判断仅文档早期出现过，实际未实现）。`difficulty` 字段已废弃，传了也会被忽略。
 
 ---
 

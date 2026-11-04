@@ -85,6 +85,7 @@ export async function questionRoutes(app: FastifyInstance, opts: { db: Db }): Pr
           success: summary.success,
           failed: summary.failed,
           skippedDuplicates: summary.skippedDuplicates,
+          createdCategories: summary.createdCategories,
           mode,
         },
       });

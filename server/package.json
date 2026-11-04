@@ -1,6 +1,6 @@
 {
   "name": "@liti/server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "砺题 Liti 后端服务",

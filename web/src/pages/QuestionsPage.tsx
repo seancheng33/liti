@@ -14,6 +14,7 @@ import {
   Table,
   Tag,
   Tooltip,
+  Typography,
   Upload,
   message,
 } from 'antd';
@@ -36,6 +37,8 @@ interface ImportSummary {
   success: number;
   failed: number;
   skippedDuplicates: number;
+  /** 导入时自动新建的分类名（预检时是「将会新建」的名单） */
+  createdCategories: string[];
   rows: { row: number; ok: boolean; errors: string[]; duplicateOf?: number }[];
 }
 
@@ -225,10 +228,13 @@ export default function QuestionsPage() {
         buf,
       )) as ImportSummary;
       setImportResult(res);
+      const createdNote = res.createdCategories?.length
+        ? `，新建分类 ${res.createdCategories.length} 个`
+        : '';
       if (res.failed > 0) {
-        message.warning(`导入完成：成功 ${res.success}，失败 ${res.failed}，其中重复 ${res.skippedDuplicates}`);
+        message.warning(`导入完成：成功 ${res.success}，失败 ${res.failed}，其中重复 ${res.skippedDuplicates}${createdNote}`);
       } else {
-        message.success(`导入完成：成功 ${res.success}`);
+        message.success(`导入完成：成功 ${res.success}${createdNote}`);
       }
       load();
       loadCategories();
@@ -577,6 +583,20 @@ export default function QuestionsPage() {
               <Tag color="red">失败 {importResult.failed}</Tag>
               <Tag color="orange">其中重复 {importResult.skippedDuplicates}</Tag>
             </Space>
+            {importResult.createdCategories?.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  自动新建的分类：
+                </Typography.Text>
+                <Space size={[6, 6]} wrap style={{ marginTop: 4 }}>
+                  {importResult.createdCategories.map((name) => (
+                    <Tag key={name} color="cyan">
+                      {name}
+                    </Tag>
+                  ))}
+                </Space>
+              </div>
+            )}
             <Table
               rowKey="row"
               size="small"
