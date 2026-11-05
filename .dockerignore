@@ -21,3 +21,9 @@ electron/main.ts
 electron/preload.ts
 electron/tsconfig.json
 README.md
+# 服务器上与 compose 文件同目录的生产数据（compose 就地构建时别把它们带进构建上下文）
+mysql-data
+uploads
+liti.yaml
+*.tgz
+*.tar.gz
